@@ -1,0 +1,214 @@
+package com.manacommunity.api.controller;
+
+import com.manacommunity.api.model.AppUser;
+import com.manacommunity.api.response.UserResponse;
+import com.manacommunity.api.security.UserPrincipal;
+import com.manacommunity.api.service.LoggedInUserService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/users")
+@CrossOrigin(origins = "*") // TODO: restrict in production
+@RequiredArgsConstructor
+public class UserController {
+
+    private final LoggedInUserService loggedInUserService;
+    private final com.manacommunity.api.repository.RolePermissionRepository rolePermissionRepo;
+    private final com.manacommunity.api.service.RoleService roleService;
+    private final jakarta.persistence.EntityManager entityManager;
+
+    private java.util.List<String> getPermissionsForUser(AppUser user) {
+        if (user.getRole() == null) {
+            return java.util.Collections.emptyList();
+        }
+        java.util.List<com.manacommunity.api.model.RolePermission> userPerms = rolePermissionRepo.findByUserId(user.getId());
+        if (!userPerms.isEmpty()) {
+            return userPerms.stream()
+                    .map(com.manacommunity.api.model.RolePermission::getPermissionKey)
+                    .toList();
+        }
+        if (user.getRoleEntity() != null) {
+            return user.getRoleEntity().getPermissions().stream()
+                    .map(com.manacommunity.api.model.RolePermission::getPermissionKey)
+                    .toList();
+        }
+        return rolePermissionRepo.findByRoleIgnoreCase(user.getRole()).stream()
+                .filter(rp -> rp.getUser() == null)
+                .map(com.manacommunity.api.model.RolePermission::getPermissionKey)
+                .toList();
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<UserResponse> getLoggedInUserDetails(@AuthenticationPrincipal UserPrincipal principal) {
+        AppUser user = loggedInUserService.resolve(principal);
+
+        UserResponse response = UserResponse.builder()
+                .id(user.getId())
+                .fullName(user.getFullName())
+                .email(user.getEmail())
+                .phone(user.getPhone())
+                .role(user.getRole())
+                .kycStatus(user.getKycStatus())
+                .profilePicUrl(user.getProfilePicUrl())
+                .gender(user.getGender())
+                .dateOfBirth(user.getDateOfBirth())
+                .flatNo(user.getFlatNo())
+                .block(user.getBlock())
+                .communityId(user.getCommunity() != null ? user.getCommunity().getId() : null)
+                .permissions(getPermissionsForUser(user))
+                .build();
+
+        return ResponseEntity.ok(response);
+    }
+
+    private final com.manacommunity.api.repository.AppUserRepository appUserRepo;
+
+    @GetMapping("/search")
+    public ResponseEntity<java.util.List<UserResponse>> searchUsers(
+            @RequestParam(required = false) Long communityId,
+            @RequestParam String query,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        AppUser loggedInUser = loggedInUserService.resolve(principal);
+        Long targetCommunityId = communityId;
+        if (!"SUPER_ADMIN".equals(loggedInUser.getRole())) {
+            targetCommunityId = loggedInUser.getCommunity() != null ? loggedInUser.getCommunity().getId() : null;
+        }
+        if (targetCommunityId == null) {
+            return ResponseEntity.ok(java.util.Collections.emptyList());
+        }
+        final Long finalCommId = targetCommunityId;
+        return ResponseEntity.ok(appUserRepo.findByCommunityIdAndFullNameContainingIgnoreCase(finalCommId, query)
+                .stream().map(u -> UserResponse.builder()
+                        .id(u.getId())
+                        .fullName(u.getFullName())
+                        .email(u.getEmail())
+                        .phone(u.getPhone())
+                        .role(u.getRole())
+                        .communityId(finalCommId)
+                        .isActive(u.getIsActive())
+                        .permissions(getPermissionsForUser(u))
+                        .build()).toList());
+    }
+
+    @GetMapping("/community/{communityId}")
+    public ResponseEntity<java.util.List<UserResponse>> getCommunityUsers(
+            @PathVariable Long communityId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        AppUser loggedInUser = loggedInUserService.resolve(principal);
+        Long targetCommunityId = communityId;
+        if (!"SUPER_ADMIN".equals(loggedInUser.getRole())) {
+            targetCommunityId = loggedInUser.getCommunity() != null ? loggedInUser.getCommunity().getId() : null;
+            if (targetCommunityId == null || !targetCommunityId.equals(communityId)) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
+            }
+        }
+        final Long finalCommId = targetCommunityId;
+        return ResponseEntity.ok(appUserRepo.findByCommunityId(finalCommId)
+                .stream().map(u -> UserResponse.builder()
+                        .id(u.getId())
+                        .fullName(u.getFullName())
+                        .email(u.getEmail())
+                        .phone(u.getPhone())
+                        .role(u.getRole())
+                        .communityId(finalCommId)
+                        .isActive(u.getIsActive())
+                        .permissions(getPermissionsForUser(u))
+                        .build()).toList());
+    }
+
+    @GetMapping
+    public ResponseEntity<java.util.List<UserResponse>> getAllUsers(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        AppUser loggedInUser = loggedInUserService.resolve(principal);
+        boolean isSuperAdmin = "SUPER_ADMIN".equals(loggedInUser.getRole());
+        java.util.List<AppUser> users;
+        if (isSuperAdmin) {
+            users = appUserRepo.findAll();
+        } else {
+            Long communityId = loggedInUser.getCommunity() != null ? loggedInUser.getCommunity().getId() : null;
+            if (communityId == null) {
+                return ResponseEntity.ok(java.util.Collections.emptyList());
+            }
+            users = appUserRepo.findByCommunityId(communityId);
+        }
+        return ResponseEntity.ok(users
+                .stream().map(u -> UserResponse.builder()
+                        .id(u.getId())
+                        .fullName(u.getFullName())
+                        .email(u.getEmail())
+                        .phone(u.getPhone())
+                        .role(u.getRole())
+                        .kycStatus(u.getKycStatus())
+                        .profilePicUrl(u.getProfilePicUrl())
+                        .gender(u.getGender())
+                        .dateOfBirth(u.getDateOfBirth())
+                        .flatNo(u.getFlatNo())
+                        .block(u.getBlock())
+                        .communityId(u.getCommunity() != null ? u.getCommunity().getId() : null)
+                        .isActive(u.getIsActive())
+                        .permissions(getPermissionsForUser(u))
+                        .build()).toList());
+    }
+
+    @PutMapping("/{id}/status")
+    public ResponseEntity<Void> toggleUserStatus(@PathVariable Long id) {
+        AppUser user = appUserRepo.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        user.setIsActive(!user.getIsActive());
+        appUserRepo.save(user);
+        return ResponseEntity.ok().build();
+    }
+
+    @PutMapping("/{id}/role")
+    @org.springframework.transaction.annotation.Transactional
+    public ResponseEntity<Void> updateUserRole(@PathVariable Long id, @RequestBody java.util.Map<String, String> body) {
+        AppUser user = appUserRepo.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        String newRole = body.get("role");
+        if (newRole == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        
+        String normRole = newRole.toUpperCase();
+        user.setRole(normRole);
+        
+        // Resolve and update roleEntity scoped to user's community
+        Long communityId = user.getCommunity() != null ? user.getCommunity().getId() : null;
+        com.manacommunity.api.model.Role roleEntity = roleService.findOrCreateRole(normRole, communityId);
+        user.setRoleEntity(roleEntity);
+        appUserRepo.save(user);
+        
+        // Delete old user-specific permissions
+        rolePermissionRepo.deleteByUserId(user.getId());
+        rolePermissionRepo.flush();
+        
+        // Drop legacy unique constraint if it still exists
+        try {
+            entityManager.createNativeQuery("ALTER TABLE manacommunity.role_permissions DROP CONSTRAINT IF EXISTS ukan4n77iv8oyxb9vm5ce46nly").executeUpdate();
+        } catch (Exception ignored) {}
+        
+        // Load standard role permission templates (where user is null) from the resolved roleEntity
+        java.util.Set<com.manacommunity.api.model.RolePermission> templates = roleEntity != null ? roleEntity.getPermissions() : java.util.Collections.emptySet();
+        
+        // Create and save user-specific role permissions
+        java.util.List<com.manacommunity.api.model.RolePermission> userPermissions = templates.stream()
+                .filter(t -> t.getUser() == null) // copy from generic template
+                .map(t -> t.getPermissionKey())
+                .filter(pk -> pk != null && !pk.trim().isEmpty())
+                .distinct()
+                .map(pk -> com.manacommunity.api.model.RolePermission.builder()
+                        .role(normRole)
+                        .roleEntity(roleEntity)
+                        .permissionKey(pk)
+                        .user(user)
+                        .build())
+                .toList();
+        
+        rolePermissionRepo.saveAll(userPermissions);
+        
+        return ResponseEntity.ok().build();
+    }
+}

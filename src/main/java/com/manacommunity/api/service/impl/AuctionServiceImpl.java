@@ -1,0 +1,507 @@
+package com.manacommunity.api.service.impl;
+
+import com.manacommunity.api.dto.*;
+import com.manacommunity.api.model.*;
+import com.manacommunity.api.repository.*;
+import com.manacommunity.api.service.AuctionService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AuctionServiceImpl implements AuctionService {
+
+    private final AuctionConfigRepository configRepo;
+    private final AuctionPlayerRepository playerRepo;
+    private final AuctionBidRepository bidRepo;
+    private final AuctionTeamRepository teamRepo;
+    private final AuctionSessionLogRepository logRepo;
+    private final SportMetaRepository sportRepo;
+    private final AppUserRepository userRepo;
+    private final AuctionConfigCategoryRepository auctionConfigCategoryRepo;
+    private final AuctionDisputeCommitteeRepository committeeRepo;
+    private final com.manacommunity.api.repository.SportsEventRegistrationRepository registrationRepo;
+    private final com.manacommunity.api.repository.SportsEventRepository eventRepo;
+
+    @Override
+    public List<AuctionConfig> getConfigsBySportAndCommunity(Long sportId, Long communityId) {
+        if (communityId == null) {
+            return configRepo.findBySportIdOrderByCreatedAtDesc(sportId);
+        }
+        return configRepo.findBySportIdAndCreatedByCommunityIdOrderByCreatedAtDesc(sportId, communityId);
+    }
+    @Override
+    public List<AuctionConfig> getAllConfigsByCommunity(Long communityId) {
+        if (communityId == null) return List.of();
+        return configRepo.findByCreatedByCommunityIdOrderByCreatedAtDesc(communityId);
+    }
+    @Override
+    public AuctionConfigResponse getConfigResponse(Long id) {
+        AuctionConfig config = configRepo.findById(id).orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("AuctionConfig", id));
+        return new AuctionConfigResponse(
+                config.getId(),
+                config.getEvent() != null ? config.getEvent().getId() : null,
+                config.getEvent() != null ? config.getEvent().getName() : null,
+                config.getSport().getName(),
+                config.getSeasonName(),
+                config.getAuctionFormat().name(),
+                config.getTotalTeams(),
+                config.getTotalPlayers(),
+                config.getBudgetPerTeam(),
+                config.getBasePrice(),
+                config.getBidIncrementDefault(),
+                config.getBidIncrementThreshold(),
+                config.getBidIncrementAbove(),
+                config.getBidTimerSeconds(),
+                config.getRtmEnabled(),
+                config.getUnsoldRule().name(),
+                config.getStatus().name(),
+                config.getPlayers().stream().map(AuctionPlayer::getCategory).distinct().collect(Collectors.toList()),
+                config.getCommitteeMembers().stream().map(AuctionDisputeCommittee::getMemberName).collect(Collectors.toList())
+        );
+    }
+
+    // ── CREATE AUCTION CONFIG ─────────────────────────────────────
+    @Override
+    @Transactional
+    public AuctionConfig createConfig(AuctionConfigRequest req, Long adminUserId) {
+        if (configRepo.existsBySportIdAndSeasonName(req.sportId(), req.seasonName()))
+            throw new IllegalStateException("Auction already exists for this sport and season");
+
+        AuctionConfig config = AuctionConfig.builder()
+            .sport(sportRepo.getReferenceById(req.sportId()))
+            .event(req.eventId() != null ? eventRepo.getReferenceById(req.eventId()) : null)
+            .seasonName(req.seasonName())
+            .auctionFormat(AuctionConfig.AuctionFormat.valueOf(req.auctionFormat()))
+            .totalTeams(req.totalTeams())
+            .totalPlayers(req.totalPlayers())
+            .budgetPerTeam(req.budgetPerTeam())
+            .basePrice(req.basePrice())
+            .bidIncrementDefault(req.bidIncrementDefault())
+            .bidIncrementThreshold(req.bidIncrementThreshold())
+            .bidIncrementAbove(req.bidIncrementAbove())
+            .bidTimerSeconds(req.bidTimerSeconds())
+            .rtmEnabled(Boolean.TRUE.equals(req.rtmEnabled()))
+            .unsoldRule(AuctionConfig.UnsoldRule.valueOf(
+                req.unsoldRule() != null ? req.unsoldRule() : "ROTATION_AUCTION"))
+            .status(AuctionConfig.AuctionStatus.DRAFT)
+            .createdBy(userRepo.getReferenceById(adminUserId))
+            .build();
+
+        AuctionConfig saved = configRepo.save(config);
+
+        // Persist categories
+        if (req.categories() != null) {
+            req.categories().forEach(cat ->
+                auctionConfigCategoryRepo.save(new AuctionConfigCategory(saved, cat)));
+        }
+        // Persist committee members
+        if (req.committeeMembers() != null) {
+            req.committeeMembers().forEach(name ->
+                committeeRepo.save(AuctionDisputeCommittee.builder()
+                    .config(saved).memberName(name).role("COMMITTEE_MEMBER").build()));
+        }
+        log.info("Auction config created: sport={} season={}", req.sportId(), req.seasonName());
+        return saved;
+    }
+
+    // ── UPDATE CONFIG (dynamically update pricing/rules) ──────────
+    @Override
+    @Transactional
+    public AuctionConfig updateConfig(Long configId, AuctionConfigRequest req) {
+        AuctionConfig config = configRepo.findById(configId)
+            .orElseThrow(() -> new IllegalArgumentException("Auction config not found: " + configId));
+
+        if (config.getStatus() == AuctionConfig.AuctionStatus.LIVE)
+            throw new IllegalStateException("Cannot update rules while auction is LIVE. Pause first.");
+
+        // Apply all dynamic rule changes
+        if (req.eventId() != null) {
+            config.setEvent(eventRepo.getReferenceById(req.eventId()));
+        } else {
+            config.setEvent(null);
+        }
+        config.setTotalTeams(req.totalTeams());
+        config.setTotalPlayers(req.totalPlayers());
+        config.setBudgetPerTeam(req.budgetPerTeam());
+        config.setBasePrice(req.basePrice());
+        config.setBidIncrementDefault(req.bidIncrementDefault());
+        config.setBidIncrementThreshold(req.bidIncrementThreshold());
+        config.setBidIncrementAbove(req.bidIncrementAbove());
+        config.setBidTimerSeconds(req.bidTimerSeconds());
+        config.setRtmEnabled(Boolean.TRUE.equals(req.rtmEnabled()));
+        if (req.unsoldRule() != null)
+            config.setUnsoldRule(AuctionConfig.UnsoldRule.valueOf(req.unsoldRule()));
+
+        return configRepo.save(config);
+    }
+
+    @Override
+    @Transactional
+    public AuctionConfig updateStatus(Long configId, String status) {
+        AuctionConfig config = configRepo.findById(configId)
+                .orElseThrow(() -> new com.manacommunity.api.exception.ManaCommunityException(
+                        "Please configure the auction configuration before starting the auction.",
+                        org.springframework.http.HttpStatus.BAD_REQUEST, "CONFIG_NOT_FOUND"));
+        AuctionConfig.AuctionStatus newStatus = AuctionConfig.AuctionStatus.valueOf(status);
+
+        if (newStatus == AuctionConfig.AuctionStatus.LIVE || newStatus == AuctionConfig.AuctionStatus.ACTIVE) {
+            long teamCount = teamRepo.countByConfigId(configId);
+            if (teamCount < 2) {
+                throw new IllegalStateException("Cannot start auction: At least 2 teams must be configured.");
+            }
+            long playerCount = playerRepo.countByConfigId(configId);
+            if (playerCount == 0) {
+                throw new IllegalStateException("Cannot start auction: Player pool is empty.");
+            }
+        }
+
+        config.setStatus(newStatus);
+        return configRepo.save(config);
+    }
+
+    // ── GET CURRENT PLAYER (with bid info) ────────────────────────
+    @Override
+    @Transactional(readOnly = true)
+    public PlayerWithBidResponse getCurrentPlayer(Long configId) {
+        AuctionConfig config = configRepo.findById(configId).orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("AuctionConfig", configId));
+
+        // First check if a player is already in SELLING state
+        java.util.Optional<AuctionPlayer> sellingPlayerOpt = playerRepo.findSellingPlayer(configId);
+        
+        AuctionPlayer player;
+        if (sellingPlayerOpt.isPresent()) {
+            player = sellingPlayerOpt.get();
+        } else {
+            List<AuctionPlayer> queued = playerRepo.findQueuedByConfig(configId);
+            if (queued.isEmpty()) {
+                throw new IllegalStateException("No more players in queue");
+            }
+            player = queued.get(0);
+        }
+
+        Long currentBid = bidRepo.findMaxBidForPlayer(player.getId())
+            .orElse((long) player.getBasePrice());
+
+        String currentBidTeam = bidRepo.findTopBidsForPlayer(player.getId(), PageRequest.of(0, 1))
+            .stream().findFirst()
+            .map(b -> b.getTeam().getTeamName())
+            .orElse(null);
+
+        int nextIncrement = config.calculateNextIncrement(currentBid);
+        long nextBid = currentBid + nextIncrement;
+
+        return new PlayerWithBidResponse(
+            player.getId(), player.getPlayerName(), player.getCategory(),
+            player.getPlayerRole(), player.getAge(), player.getBasePrice(),
+            player.getStatsJson(), currentBid, nextBid, nextIncrement,
+            currentBidTeam, player.getQueueOrder(), player.getStatus().name()
+        );
+    }
+
+    // ── PLACE BID ─────────────────────────────────────────────────
+    @Override
+    @Transactional
+    public AuctionBid placeBid(BidRequest req, Long biddingUserId) {
+        AuctionConfig config = configRepo.findById(req.configId()).orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("AuctionConfig", req.configId()));
+        AuctionTeam   team   = teamRepo.findById(req.teamId()).orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("AuctionTeam", req.teamId()));
+        AuctionPlayer player = playerRepo.findById(req.playerId()).orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("AuctionPlayer", req.playerId()));
+
+        // Validate auction is live
+        if (config.getStatus() !=  AuctionConfig.AuctionStatus.LIVE  &&
+                config.getStatus() != AuctionConfig.AuctionStatus.ACTIVE)
+            throw new IllegalStateException("Auction is not LIVE");
+
+        // Budget check
+        if (team.getRemainingBudget() < req.bidAmount())
+            throw new IllegalStateException("Team budget insufficient. Available: ₹"
+                + team.getRemainingBudget());
+
+        // Minimum bid check (base price or current max + increment)
+        Long currentMax = bidRepo.findMaxBidForPlayer(player.getId()).orElse(0L);
+        long minRequired = currentMax == 0
+            ? config.getBasePrice()
+            : currentMax + config.calculateNextIncrement(currentMax);
+
+        if (req.bidAmount() < minRequired)
+            throw new IllegalStateException("Bid must be at least ₹" + minRequired
+                + ". Increment rule: "
+                + (currentMax >= config.getBidIncrementThreshold() ? "₹" + config.getBidIncrementAbove() : "₹" + config.getBidIncrementDefault()));
+
+        // Set player to SELLING if still QUEUED
+        if (player.getStatus() == AuctionPlayer.PlayerStatus.QUEUED) {
+            player.setStatus(AuctionPlayer.PlayerStatus.SELLING);
+            playerRepo.save(player);
+        }
+
+        int incrementUsed = (int) (req.bidAmount() - currentMax);
+
+        AuctionBid bid = AuctionBid.builder()
+            .config(config)
+            .player(player)
+            .team(team)
+            .bidAmount(req.bidAmount())
+            .incrementUsed(incrementUsed)
+            .isRtm(Boolean.TRUE.equals(req.isRtm()))
+            .bidByUser(userRepo.getReferenceById(biddingUserId))
+            .build();
+
+        log.info("Bid placed: player={} team={} amount={}", player.getPlayerName(),
+            team.getTeamName(), req.bidAmount());
+        return bidRepo.save(bid);
+    }
+
+    // ── SOLD PLAYER ───────────────────────────────────────────────
+    @Override
+    @Transactional
+    public AuctionPlayer soldPlayer(SoldPlayerRequest req, Long adminUserId) {
+        AuctionPlayer player = playerRepo.findById(req.playerId()).orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("AuctionPlayer", req.playerId()));
+        AuctionTeam   team   = teamRepo.findById(req.teamId()).orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("AuctionTeam", req.teamId()));
+
+        Long soldPrice = bidRepo.findMaxBidForPlayer(player.getId())
+            .orElseThrow(() -> new IllegalStateException("No bids placed for this player"));
+
+        // Deduct from team budget
+        if (team.getRemainingBudget() < soldPrice)
+            throw new IllegalStateException("Team budget insufficient for final sale");
+
+        team.setRemainingBudget(team.getRemainingBudget() - soldPrice);
+        team.setSpent((team.getSpent() == null ? 0L : team.getSpent()) + soldPrice);
+        teamRepo.save(team);
+
+        player.setStatus(AuctionPlayer.PlayerStatus.SOLD);
+        player.setAssignedTeam(team);
+        player.setSoldPrice(soldPrice);
+        player.setRtmUsed(false);
+        player.setSoldAt(LocalDateTime.now());
+
+        // Log it
+        logRepo.save(AuctionSessionLog.builder()
+            .config(player.getConfig())
+            .action("PLAYER_SOLD")
+            .player(player)
+            .team(team)
+            .amount(soldPrice)
+            .performedBy(userRepo.getReferenceById(adminUserId))
+            .notes(player.getPlayerName() + " sold to " + team.getTeamName() + " for ₹" + soldPrice)
+            .build());
+
+        log.info("SOLD: {} → {} for ₹{}", player.getPlayerName(), team.getTeamName(), soldPrice);
+        return playerRepo.save(player);
+    }
+
+    // ── PASS PLAYER ───────────────────────────────────────────────
+    @Override
+    @Transactional
+    public AuctionPlayer passPlayer(Long playerId, Long adminUserId) {
+        AuctionPlayer player = playerRepo.findById(playerId).orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("AuctionPlayer", playerId));
+        AuctionConfig config = player.getConfig();
+
+        if (config.getUnsoldRule() == AuctionConfig.UnsoldRule.ROTATION_AUCTION) {
+            // Rotation: move player to end of queue
+            int maxOrder = playerRepo.findQueuedByConfig(config.getId())
+                .stream().mapToInt(AuctionPlayer::getQueueOrder).max().orElse(0);
+            player.setQueueOrder(maxOrder + 1);
+            player.setStatus(AuctionPlayer.PlayerStatus.QUEUED);
+        } else {
+            player.setStatus(AuctionPlayer.PlayerStatus.PASSED);
+        }
+
+        logRepo.save(AuctionSessionLog.builder()
+            .config(config).action("PLAYER_PASSED").player(player)
+            .performedBy(userRepo.getReferenceById(adminUserId)).build());
+
+        return playerRepo.save(player);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AuctionStatsResponse getAuctionStats(Long configId) {
+        AuctionConfig config = configRepo.findById(configId)
+                .orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("AuctionConfig", configId));
+
+        long totalPlayers = 0;
+        if (config.getEvent() != null) {
+            // Direct reference to the linked event is now available
+            totalPlayers = registrationRepo.countByEventIdAndStatus(config.getEvent().getId(), com.manacommunity.api.model.SportsEventRegistration.RegistrationStatus.CONFIRMED);
+        } else {
+            // Fallback if no event linked
+            Long communityId = config.getCreatedBy() != null && config.getCreatedBy().getCommunity() != null 
+                    ? config.getCreatedBy().getCommunity().getId() : null;
+            Long sportId = config.getSport().getId();
+            if (communityId != null) {
+                totalPlayers = registrationRepo.countActiveRegistrationsForCommunityAndSport(
+                        communityId, 
+                        sportId, 
+                        //com.manacommunity.api.model.SportsEventRegistration.RegistrationStatus.CONFIRMED,
+                        java.util.Arrays.asList(com.manacommunity.api.model.SportsEvent.EventStatus.COMPLETED, com.manacommunity.api.model.SportsEvent.EventStatus.CANCELLED)
+                );
+            } else {
+                totalPlayers = playerRepo.countByConfigId(configId);
+            }
+        }
+
+        // Live stats directly from database using specific count/sum queries
+        long soldPlayers = playerRepo.countByConfigIdAndStatus(configId, AuctionPlayer.PlayerStatus.SOLD);
+        long queuedPlayers = playerRepo.countQueuedByConfig(configId);
+        
+        long totalTeams = teamRepo.countByConfigId(configId);
+        long totalBudget = teamRepo.sumBudgetByConfigId(configId);
+        long totalSpent = teamRepo.sumSpentByConfigId(configId);
+
+        return new AuctionStatsResponse(totalPlayers, soldPlayers, queuedPlayers, totalTeams, totalBudget, totalSpent);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long getConfirmedRegistrationCount(Long configId) {
+        AuctionConfig config = configRepo.findById(configId)
+                .orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("AuctionConfig", configId));
+
+        if (config.getEvent() != null) {
+            return registrationRepo.countByEventIdAndStatus(config.getEvent().getId(), com.manacommunity.api.model.SportsEventRegistration.RegistrationStatus.CONFIRMED);
+        }
+
+        // Fallback
+        Long communityId = config.getCreatedBy() != null && config.getCreatedBy().getCommunity() != null 
+                ? config.getCreatedBy().getCommunity().getId() : null;
+        Long sportId = config.getSport().getId();
+        if (communityId != null) {
+            return registrationRepo.countActiveRegistrationsForCommunityAndSport(
+                    communityId, 
+                    sportId, 
+                    //com.manacommunity.api.model.SportsEventRegistration.RegistrationStatus.CONFIRMED,
+                    java.util.Arrays.asList(com.manacommunity.api.model.SportsEvent.EventStatus.COMPLETED, com.manacommunity.api.model.SportsEvent.EventStatus.CANCELLED)
+            );
+        }
+        return 0;
+    }
+
+    // ── GET BID HISTORY ───────────────────────────────────────────
+    @Override
+    @Transactional(readOnly = true)
+    public List<AuctionBid> getBidHistory(Long playerId) {
+        return bidRepo.findByPlayerIdOrderByBidAtDesc(playerId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AuctionPlayer> getPlayers(Long configId, String category, String status) {
+        if (category != null) {
+            return playerRepo.findByConfigIdAndCategoryOrderByQueueOrder(configId, category);
+        }
+        if (status != null) {
+             return playerRepo.findByConfigIdAndStatusOrderByQueueOrderAsc(configId, AuctionPlayer.PlayerStatus.valueOf(status));
+        }
+        return playerRepo.findByConfigId(configId);
+    }
+
+    @Override
+    @Transactional
+    public AuctionPlayer createPlayer(Long configId, AuctionPlayerRequest req) {
+        AuctionConfig config = configRepo.findById(configId)
+            .orElseThrow(() -> new IllegalArgumentException("Invalid auction config ID"));
+
+        // Compile stats JSON string manually or using a library.
+        // For simplicity, constructing a JSON string from the DTO properties.
+        StringBuilder statsJson = new StringBuilder("{");
+        if (req.getMatches() != null) statsJson.append("\"matches\":").append(req.getMatches()).append(",");
+        if (req.getRuns() != null) statsJson.append("\"runs\":").append(req.getRuns()).append(",");
+        if (req.getWickets() != null) statsJson.append("\"wickets\":").append(req.getWickets()).append(",");
+        if (req.getStrikeRate() != null) statsJson.append("\"strikeRate\":").append(req.getStrikeRate()).append(",");
+        if (req.getEconomy() != null) statsJson.append("\"economy\":").append(req.getEconomy()).append(",");
+        if (req.getAvgScore() != null) statsJson.append("\"avgScore\":").append(req.getAvgScore()).append(",");
+        
+        String finalStats = "{}";
+        if (statsJson.length() > 1) {
+            statsJson.deleteCharAt(statsJson.length() - 1); // remove trailing comma
+            statsJson.append("}");
+            finalStats = statsJson.toString();
+        }
+
+        // Get max queue order for the config to append this player
+        int maxOrder = playerRepo.findByConfigIdAndCategoryOrderByQueueOrder(configId, req.getCategory())
+                                 .stream().mapToInt(AuctionPlayer::getQueueOrder).max().orElse(0);
+
+        AuctionPlayer player = AuctionPlayer.builder()
+            .config(config)
+            .playerName(req.getPlayerName())
+            .category(req.getCategory())
+            .playerRole(req.getPlayerRole())
+            .age(req.getAge())
+            .basePrice(req.getBasePrice())
+            .queueOrder(maxOrder + 1)
+            .status(AuctionPlayer.PlayerStatus.QUEUED)
+            .statsJson(finalStats)
+            .build();
+
+        return playerRepo.save(player);
+    }
+
+    // ── PICK RANDOM PLAYER FOR LIVE AUCTION ──────────────────────
+    @Override
+    @Transactional
+    public PlayerWithBidResponse pickRandomPlayer(Long configId) {
+        AuctionConfig config = configRepo.findById(configId)
+            .orElseThrow(() -> new IllegalArgumentException("Auction config not found: " + configId));
+
+        // Start the auction automatically if it's currently ACTIVE
+        if (config.getStatus() == AuctionConfig.AuctionStatus.ACTIVE) {
+            config.setStatus(AuctionConfig.AuctionStatus.LIVE);
+            configRepo.save(config);
+        }
+
+        // Check if there's already a SELLING player — return them first
+        var sellingOpt = playerRepo.findSellingPlayer(configId);
+        if (sellingOpt.isPresent()) {
+            AuctionPlayer selling = sellingOpt.get();
+            Long currentBid = bidRepo.findMaxBidForPlayer(selling.getId())
+                .orElse((long) selling.getBasePrice());
+            String currentBidTeam = bidRepo.findTopBidsForPlayer(selling.getId(),
+                    org.springframework.data.domain.PageRequest.of(0, 1))
+                .stream().findFirst()
+                .map(b -> b.getTeam().getTeamName())
+                .orElse(null);
+            int nextIncrement = config.calculateNextIncrement(currentBid);
+            return new PlayerWithBidResponse(
+                selling.getId(), selling.getPlayerName(), selling.getCategory(),
+                selling.getPlayerRole(), selling.getAge(), selling.getBasePrice(),
+                selling.getStatsJson(), currentBid, currentBid + nextIncrement,
+                nextIncrement, currentBidTeam, selling.getQueueOrder(),
+                selling.getStatus().name()
+            );
+        }
+
+        // Pick a random QUEUED player
+        List<AuctionPlayer> queued = playerRepo.findQueuedByConfig(configId);
+        if (queued.isEmpty()) {
+            throw new IllegalStateException("No more players in queue. Auction pool is empty.");
+        }
+
+        java.util.Random random = new java.util.Random();
+        int randomIndex = random.nextInt(queued.size());
+        AuctionPlayer picked = queued.get(randomIndex);
+
+        picked.setStatus(AuctionPlayer.PlayerStatus.SELLING);
+        playerRepo.save(picked);
+
+        log.info("Random player picked for auction: {} (id={})", picked.getPlayerName(), picked.getId());
+
+        return new PlayerWithBidResponse(
+            picked.getId(), picked.getPlayerName(), picked.getCategory(),
+            picked.getPlayerRole(), picked.getAge(), picked.getBasePrice(),
+            picked.getStatsJson(), (long) picked.getBasePrice(),
+            config.calculateNextBid(picked.getBasePrice()),
+            config.calculateNextIncrement(picked.getBasePrice()),
+            null, picked.getQueueOrder(), picked.getStatus().name()
+        );
+    }
+}

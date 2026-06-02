@@ -1,0 +1,636 @@
+package com.manacommunity.api.service.impl;
+
+import com.manacommunity.api.dto.SportsEventRequest;
+import com.manacommunity.api.dto.NotificationScheduleDto;
+import com.manacommunity.api.dto.RegistrationRequest;
+import com.manacommunity.api.dto.SponsorDto;
+import com.manacommunity.api.exception.*;
+import com.manacommunity.api.model.*;
+import com.manacommunity.api.repository.*;
+import com.manacommunity.api.service.SportsEventService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.Period;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class SportsEventServiceImpl implements SportsEventService {
+
+    private final SportsEventRepository eventRepo;
+    private final SportsEventRegistrationRepository regRepo;
+    private final SportMetaRepository sportMetaRepo;
+    private final PlayerCategoryRepository categoryRepo;
+    private final EventNotificationScheduleRepository notifRepo;
+    private final SportsNotificationSchedulerRepository schedulerRepo;
+    private final AppUserRepository userRepo;
+    private final CommunityRepository communityRepo;
+    private final VenueRepository venueRepo;
+    private final AuctionConfigRepository auctionConfigRepo;
+    private final AuctionTeamRepository auctionTeamRepo;
+    private final AuctionPlayerRepository playerRepo;
+    private final TournamentRepository tournamentRepo;
+
+    @Transactional
+    public SportsEvent createEvent(SportsEventRequest req, Long adminUserId) {
+        SportsMeta sport = sportMetaRepo.findById(req.getSportId())
+                .orElseThrow(() -> new ResourceNotFoundException("Sport", req.getSportId()));
+
+        Venue venue = null;
+        if (req.getVenueId() != null) {
+            venue = venueRepo.findById(req.getVenueId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Venue", req.getVenueId()));
+        }
+
+        SportsEvent event = SportsEvent.builder()
+                .name(req.getName())
+                .active(true)
+                .sport(sport)
+                .community(communityRepo.getReferenceById(req.getCommunityId()))
+                .eventDateStart(req.getEventDateStart())
+                .eventDateEnd(req.getEventDateEnd())
+                .registrationDateStart(req.getRegistrationDateStart())
+                .registrationDateEnd(req.getRegistrationDateEnd())
+                .venue(venue)
+                .maxParticipants(req.getMaxParticipants() != null ? req.getMaxParticipants() : 64)
+                //.registrationStatus(SportsEvent.EventStatus.DRAFT)
+                .format(req.getFormat() != null ? java.util.Arrays.asList(req.getFormat().split(",")) : new java.util.ArrayList<>())
+                .tournamentType(req.getTournamentType() != null
+                        ? SportsEvent.TournamentType.valueOf(req.getTournamentType()) : null)
+                .createdBy(userRepo.getReferenceById(adminUserId))
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .disputeCommitteeIds(listToCommaString(req.getDisputeCommitteeIds()))
+                .minPlayers(req.getMinPlayers())
+                .maxPlayers(req.getMaxPlayers())
+                .gender(req.getGender())
+                .playersBorn(req.getPlayersBorn())
+                .contactNumber(req.getContactNumber())
+                .contactEmail(req.getContactEmail())
+                .otherContacts(req.getOtherContacts())
+                .bannerImage(req.getBannerImage())
+                .tournamentLevel(req.getTournamentLevel())
+                .description(req.getDescription())
+                .startTime(req.getStartTime())
+                .dueTime(req.getDueTime())
+                .minAge(req.getMinAge() != null ? req.getMinAge() : 0)
+                .maxAge(req.getMaxAge() != null ? req.getMaxAge() : 100)
+                .build();
+
+        if (req.getCategoryIds() != null)
+            event.setCategories(new java.util.HashSet<>(categoryRepo.findAllById(req.getCategoryIds())));
+
+        if (req.getSponsors() != null) {
+            List<EventSponsor> sponsorsList = new java.util.ArrayList<>();
+            for (SponsorDto s : req.getSponsors()) {
+                sponsorsList.add(EventSponsor.builder()
+                        .event(event)
+                        .category(s.getCategory())
+                        .name(s.getName())
+                        .url(s.getUrl())
+                        .build());
+            }
+            event.setSponsors(sponsorsList);
+        }
+
+        SportsEvent saved = eventRepo.save(event);
+
+        if (req.getNotifications() != null)
+            scheduleNotifications(saved, req.getNotifications());
+
+        return saved;
+    }
+
+    @Transactional
+    public SportsEventRegistration registerUser(RegistrationRequest req, Long userId) {
+        SportsEvent event = eventRepo.findById(req.getEventId())
+                .orElseThrow(() -> new ResourceNotFoundException("Event", req.getEventId()));
+
+//        if (event.getRegistrationStatus() != SportsEvent.EventStatus.REGISTRATION_OPEN)
+//            throw new RegistrationClosedException(event.getName(), event.getRegistrationStatus().name());
+
+        AppUser user = userRepo.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+
+        // Allow multiple registrations if playerName is different (for family members)
+        String pName = req.getPlayerName() != null ? req.getPlayerName() : user.getFullName();
+        if (regRepo.existsByEventIdAndUserIdAndPlayerName(req.getEventId(), userId, pName)) {
+            throw new AlreadyRegisteredException("Registration for " + pName + " already exists.");
+        }
+
+        long currentCount = regRepo.countByEventId(req.getEventId());
+        if (currentCount >= event.getMaxParticipants())
+            throw new EventFullException(event.getName(), event.getMaxParticipants());
+
+        PlayerCategory category = categoryRepo.findById(req.getCategoryId())
+                .orElseThrow(() -> new ResourceNotFoundException("PlayerCategory", req.getCategoryId()));
+
+        int age = Period.between(user.getDateOfBirth(), LocalDate.now()).getYears();
+        int minAge = event.getMinAge() != null ? event.getMinAge() : 0;
+        int maxAge = event.getMaxAge() != null ? event.getMaxAge() : 100;
+        if (age < minAge || age > maxAge)
+            throw new AgeMismatchException(age, minAge, maxAge, event.getSport().getName());
+
+        SportsEventRegistration reg = SportsEventRegistration.builder()
+                .event(event)
+                .user(user)
+                .category(category)
+                .matchType(SportsEvent.MatchFormat.valueOf(req.getMatchType()))
+                .status(SportsEventRegistration.RegistrationStatus.REGISTERED)
+                .playerName(pName)
+                .relation(req.getRelation())
+                .flatNumber(req.getFlatNumber())
+                .age(req.getAge() != null ? req.getAge() : age)
+                .role(req.getRole())
+                .registeredAt(LocalDateTime.now())
+                .build();
+
+        if (req.getPartnerUserId() != null)
+            reg.setPartner(userRepo.getReferenceById(req.getPartnerUserId()));
+
+        return regRepo.save(reg);
+    }
+
+    @Transactional
+    public void withdraw(Long registrationId, Long userId) {
+        SportsEventRegistration reg = regRepo.findById(registrationId)
+                .orElseThrow(() -> new ResourceNotFoundException("SportsEventRegistration", registrationId));
+
+        if (!reg.getUser().getId().equals(userId))
+            throw new UnauthorizedActionException("You can only withdraw your own registration.");
+
+        reg.setStatus(SportsEventRegistration.RegistrationStatus.WITHDRAWN);
+        regRepo.save(reg);
+    }
+
+    @Override
+    public List<SportsEventRegistration> getEventRegistrations(Long eventId) {
+        List<SportsEventRegistration> regs = regRepo.findByEventId(eventId);
+        hydrateCaptaincy(regs, eventId);
+        return regs;
+    }
+
+    @Override
+    public List<SportsEventRegistration> getUserRegistrations(Long userId) {
+        List<SportsEventRegistration> regs = regRepo.findByUserId(userId);
+        // Hydrate each registration with its event's captaincy info
+        for (SportsEventRegistration reg : regs) {
+            hydrateCaptaincy(List.of(reg), reg.getEvent().getId());
+        }
+        return regs;
+    }
+
+    @Override
+    @Transactional
+    public SportsEventRegistration confirmRegistration(Long registrationId) {
+        SportsEventRegistration reg = regRepo.findById(registrationId)
+                .orElseThrow(() -> new ResourceNotFoundException("SportsEventRegistration", registrationId));
+        reg.setStatus(SportsEventRegistration.RegistrationStatus.CONFIRMED);
+        SportsEventRegistration saved = regRepo.save(reg);
+
+        auctionConfigRepo.findByEventId(saved.getEvent().getId()).ifPresent(config -> {
+            boolean exists = playerRepo.findByConfigId(config.getId()).stream()
+                    .anyMatch(p -> p.getUser() != null && p.getUser().getId().equals(saved.getUser().getId()));
+            if (!exists) {
+                String cat = "Batsmen";
+                if ("Bowler".equalsIgnoreCase(saved.getRole())) cat = "Bowler";
+                else if ("All-rounder".equalsIgnoreCase(saved.getRole())) cat = "All-rounder";
+                else if ("Wicket Keeper".equalsIgnoreCase(saved.getRole())) cat = "Wicket Keeper";
+
+                long count = playerRepo.countByConfigId(config.getId());
+                AuctionPlayer player = AuctionPlayer.builder()
+                        .config(config)
+                        .user(saved.getUser())
+                        .playerName(saved.getPlayerName() != null && !saved.getPlayerName().isEmpty() ? saved.getPlayerName() : saved.getUser().getFullName())
+                        .category(cat)
+                        .playerRole(saved.getRole() != null ? saved.getRole() : "Batsman")
+                        .age(saved.getAge() != null ? saved.getAge() : 30)
+                        .basePrice(config.getBasePrice() != null ? config.getBasePrice() : 1000)
+                        .statsJson("{\"matches\":24,\"runs\":620,\"wickets\":18}")
+                        .queueOrder((int) count + 1)
+                        .status(AuctionPlayer.PlayerStatus.QUEUED)
+                        .uploadedAt(LocalDateTime.now())
+                        .build();
+                playerRepo.save(player);
+            }
+        });
+
+        hydrateCaptaincy(List.of(saved), saved.getEvent().getId());
+        return saved;
+    }
+
+    @Override
+    @Transactional
+    public SportsEventRegistration nominateCaptain(Long registrationId, boolean nominate, String teamName) {
+        SportsEventRegistration reg = regRepo.findById(registrationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Registration", registrationId));
+        
+        AuctionConfig config = auctionConfigRepo.findByEventId(reg.getEvent().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("AuctionConfig for event", reg.getEvent().getId()));
+
+        AuctionTeam team = auctionTeamRepo.findByConfigIdAndOwnerUserId(config.getId(), reg.getUser().getId())
+                .orElseGet(() -> AuctionTeam.builder()
+                        .config(config)
+                        .ownerUser(reg.getUser())
+                        .captainUser(reg.getUser())
+                        .ownerName(reg.getUser().getFullName())
+                        .eventId(reg.getEvent().getId())
+                        .totalBudget(config.getBudgetPerTeam())
+                        .remainingBudget(config.getBudgetPerTeam())
+                        .spent(0L)
+                        .build());
+
+        team.setCaptainNomination(nominate);
+        if (nominate) {
+            team.setTeamName(teamName);
+        }
+        
+        auctionTeamRepo.save(team);
+        hydrateCaptaincy(List.of(reg), reg.getEvent().getId());
+        return reg;
+    }
+
+    @Override
+    @Transactional
+    public SportsEventRegistration confirmCaptain(Long registrationId, boolean confirm) {
+        SportsEventRegistration reg = regRepo.findById(registrationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Registration", registrationId));
+        
+        AuctionConfig config = auctionConfigRepo.findByEventId(reg.getEvent().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("AuctionConfig for event", reg.getEvent().getId()));
+
+        AuctionTeam team = auctionTeamRepo.findByConfigIdAndOwnerUserId(config.getId(), reg.getUser().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("AuctionTeam for user", reg.getUser().getId()));
+
+        team.setCaptainConfirmation(confirm);
+        auctionTeamRepo.save(team);
+        
+        hydrateCaptaincy(List.of(reg), reg.getEvent().getId());
+        return reg;
+    }
+
+    private void hydrateCaptaincy(List<SportsEventRegistration> regs, Long eventId) {
+        if (regs.isEmpty()) return;
+        auctionConfigRepo.findByEventId(eventId).ifPresent(config -> {
+            List<AuctionTeam> teams = auctionTeamRepo.findByConfigIdOrderByTeamName(config.getId());
+            for (SportsEventRegistration reg : regs) {
+                teams.stream()
+                    .filter(t -> t.getOwnerUser() != null && t.getOwnerUser().getId().equals(reg.getUser().getId()))
+                    .findFirst()
+                    .ifPresent(t -> {
+                        reg.setCaptainNomination(t.getCaptainNomination());
+                        reg.setCaptainConfirmation(t.getCaptainConfirmation());
+                        reg.setProposedTeamName(t.getTeamName());
+                    });
+            }
+        });
+    }
+
+    @Transactional
+    public SportsEvent updateStatus(Long id, String status) {
+        Tournament.EventStatus tournamentStatus;
+        try {
+            tournamentStatus = Tournament.EventStatus.valueOf(status);
+        } catch (IllegalArgumentException e) {
+            throw new ManaCommunityException(
+                    "Invalid event status: '" + status + "'. Valid values: DRAFT, REGISTRATION_OPEN, "
+                    + "REGISTRATION_CLOSED, LIVE, COMPLETED, CANCELLED.",
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "INVALID_STATUS");
+        }
+
+        Tournament tournament = tournamentRepo.findById(id).orElse(null);
+        SportsEvent event = null;
+
+        if (tournament != null) {
+            tournament.setRegistrationStatus(tournamentStatus);
+            tournamentRepo.save(tournament);
+
+            if (!tournament.getSportsEvents().isEmpty()) {
+                event = tournament.getSportsEvents().get(0);
+            }
+        }
+
+        if (event == null) {
+            event = eventRepo.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tournament or Event", id));
+
+            Tournament linkedTournament = event.getTournament();
+            if (linkedTournament != null) {
+                linkedTournament.setRegistrationStatus(tournamentStatus);
+                tournamentRepo.save(linkedTournament);
+            }
+        }
+
+        event.setUpdatedAt(LocalDateTime.now());
+        return eventRepo.save(event);
+    }
+
+    private LocalDateTime getTournamentStartDateTime(SportsEvent event) {
+        if (event.getEventDateStart() == null) return null;
+        java.time.LocalDate date = event.getEventDateStart();
+        
+        int hours = 9;
+        int minutes = 0;
+        
+        String startTime = event.getStartTime();
+        if (startTime != null && !startTime.trim().isEmpty()) {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d+):(\\d+)\\s*(AM|PM)?", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(startTime);
+            if (matcher.find()) {
+                hours = Integer.parseInt(matcher.group(1));
+                minutes = Integer.parseInt(matcher.group(2));
+                String ampm = matcher.group(3);
+                if (ampm != null) {
+                    if ("PM".equalsIgnoreCase(ampm) && hours < 12) {
+                        hours += 12;
+                    } else if ("AM".equalsIgnoreCase(ampm) && hours == 12) {
+                        hours = 0;
+                    }
+                }
+            }
+        }
+        
+        return date.atTime(hours, minutes);
+    }
+
+    private void scheduleNotifications(SportsEvent event, List<NotificationScheduleDto> configs) {
+        LocalDateTime eventStart = event.getEventDateStart().atTime(8, 0);
+        LocalDateTime preciseStart = getTournamentStartDateTime(event);
+        if (preciseStart == null) preciseStart = eventStart;
+
+        for (NotificationScheduleDto cfg : configs) {
+            if (cfg.getId() == null && cfg.getOffsetType() != null) {
+                // Legacy support for seeders and test mocks
+                LocalDateTime notifyAt = switch (cfg.getOffsetType()) {
+                    case "DAYS"    -> eventStart.minusDays(cfg.getOffsetValue());
+                    case "HOURS"   -> eventStart.minusHours(cfg.getOffsetValue());
+                    case "MINUTES" -> eventStart.minusMinutes(cfg.getOffsetValue());
+                    default        -> eventStart;
+                };
+                notifRepo.save(EventNotificationSchedule.builder()
+                        .event(event).notifyAt(notifyAt).type(cfg.getType())
+                        .title(cfg.getTitle()).body(cfg.getBody()).sent(false).build());
+            } else {
+                // Premium interactive multi-channel scheduler support
+                int offsetMinutes = cfg.getOffset();
+                LocalDateTime notifyAt = preciseStart.plusMinutes(offsetMinutes);
+                
+                String recipients = cfg.getRecipients() != null 
+                        ? String.join(",", cfg.getRecipients()) 
+                        : "Registered Players";
+                String channels = cfg.getOverrideChannels() != null 
+                        ? String.join(",", cfg.getOverrideChannels()) 
+                        : "push,email";
+                
+                schedulerRepo.save(SportsNotificationScheduler.builder()
+                        .event(event)
+                        .triggerKey(cfg.getId())
+                        .label(cfg.getLabel() != null ? cfg.getLabel() : "Custom Trigger")
+                        .offsetMinutes(offsetMinutes)
+                        .enabled(cfg.isEnabled())
+                        .title(cfg.getTitle())
+                        .body(cfg.getBody())
+                        .recipients(recipients)
+                        .channels(channels)
+                        .priority(cfg.getPriority() != null ? cfg.getPriority().toUpperCase() : "NORMAL")
+                        .isCustom(cfg.isCustom())
+                        .sent(false)
+                        .notifyAt(notifyAt)
+                        .build());
+            }
+        }
+    }
+
+    public List<SportsEvent> getMyEvents(Long userId) {
+        return eventRepo.findEventsForUser(userId);
+    }
+
+    public List<SportsEvent> getOpenEvents(Long communityId) {
+        return eventRepo.findByCommunityIdAndTournamentRegistrationStatusInOrderByEventDateStartAsc(
+                communityId,
+                List.of(Tournament.EventStatus.REGISTRATION_OPEN));
+    }
+
+    @Override
+    public List<SportsEvent> getAllOpenEvents() {
+        return eventRepo.findByTournamentRegistrationStatusOrderByEventDateStartAsc(Tournament.EventStatus.REGISTRATION_OPEN);
+    }
+
+    @Override
+    public List<SportsEvent> getClosedEvents() {
+        List<SportsEvent> events = eventRepo.findByTournamentRegistrationStatusOrderByEventDateStartAsc(Tournament.EventStatus.REGISTRATION_CLOSED);
+        for (SportsEvent event : events) {
+            auctionConfigRepo.findByEventId(event.getId()).ifPresent(config -> {
+                event.setAuctionStatus(SportsEvent.AuctionEventStatus.valueOf(config.getStatus().name()));
+            });
+        }
+        return events;
+    }
+
+    @Override
+    public List<SportsEvent> getClosedEvents(Long communityId) {
+        List<SportsEvent> events = eventRepo.findByCommunityIdAndTournamentRegistrationStatusInOrderByEventDateStartAsc(
+                communityId, List.of(Tournament.EventStatus.REGISTRATION_CLOSED));
+        for (SportsEvent event : events) {
+            auctionConfigRepo.findByEventId(event.getId()).ifPresent(config -> {
+                event.setAuctionStatus(SportsEvent.AuctionEventStatus.valueOf(config.getStatus().name()));
+            });
+        }
+        return events;
+    }
+
+    @Transactional
+    public void syncTournaments() {
+        List<SportsEvent> events = eventRepo.findAll();
+        for (SportsEvent event : events) {
+            boolean exists = tournamentRepo.existsByEventId(event.getId());
+            if (!exists) {
+                Tournament tournament = Tournament.builder()
+                        .name(event.getName())
+                        .sportsEvents(new java.util.ArrayList<>())
+                        .createdAt(event.getCreatedAt() != null ? event.getCreatedAt() : LocalDateTime.now())
+                        .updatedAt(event.getUpdatedAt() != null ? event.getUpdatedAt() : LocalDateTime.now())
+                        .build();
+                event.setTournament(tournament);
+                tournament.getSportsEvents().add(event);
+                tournamentRepo.save(tournament);
+            }
+        }
+    }
+
+    @Override
+    public List<SportsEvent> getAllEvents() {
+        return eventRepo.findByActiveTrue();
+    }
+
+    @Override
+    public List<SportsEvent> getCommunityEvents(Long communityId) {
+        return eventRepo.findByCommunityIdAndActiveTrueOrderByEventDateStartDesc(communityId);
+    }
+
+    @Override
+    public SportsEvent getEventById(Long id) {
+        return eventRepo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Event", id));
+    }
+
+    @Override
+    public SportsEvent saveEvent(SportsEvent event) {
+        return eventRepo.save(event);
+    }
+
+    @Override
+    public List<java.util.Map<String, Object>> getEventMap(Long communityId) {
+        List<SportsEvent> events;
+        if (communityId == null) {
+            events = eventRepo.findAll();
+        } else {
+            events = eventRepo.findByCommunityIdOrderByEventDateStartDesc(communityId);
+        }
+        return events.stream().map(e -> {
+            java.util.Map<String, Object> map = new java.util.HashMap<>();
+            map.put("id", e.getId());
+            map.put("name", e.getName());
+            return map;
+        }).toList();
+    }
+
+    @Override
+    public long getConfirmedRegistrationCount(Long eventId) {
+        return regRepo.countByEventIdAndStatus(eventId, SportsEventRegistration.RegistrationStatus.CONFIRMED);
+    }
+
+    @Override
+    @Transactional
+    public void deleteEvent(Long eventId) {
+        tournamentRepo.deleteByEventId(eventId);
+        eventRepo.deleteById(eventId);
+    }
+
+    @Override
+    @Transactional
+    public SportsEvent updateEvent(Long eventId, SportsEventRequest req) {
+        SportsEvent event = eventRepo.findById(eventId)
+                .orElseThrow(() -> new RuntimeException("Event not found"));
+        
+        event.setName(req.getName());
+        event.setEventDateStart(req.getEventDateStart());
+        event.setEventDateEnd(req.getEventDateEnd());
+        event.setRegistrationDateStart(req.getRegistrationDateStart());
+        event.setRegistrationDateEnd(req.getRegistrationDateEnd());
+        if (req.getVenueId() != null) {
+            event.setVenue(venueRepo.getReferenceById(req.getVenueId()));
+        }
+        event.setMaxParticipants(req.getMaxParticipants());
+        
+        if (req.getCategoryIds() != null) {
+            event.setCategories(new java.util.HashSet<>(categoryRepo.findAllById(req.getCategoryIds())));
+        }
+        
+        event.setDisputeCommitteeIds(listToCommaString(req.getDisputeCommitteeIds()));
+        event.setMinPlayers(req.getMinPlayers());
+        event.setMaxPlayers(req.getMaxPlayers());
+        event.setGender(req.getGender());
+        event.setPlayersBorn(req.getPlayersBorn());
+        event.setFormat(req.getFormat() != null ? java.util.Arrays.asList(req.getFormat().split(",")) : new java.util.ArrayList<>());
+        event.setTournamentType(req.getTournamentType() != null
+                ? SportsEvent.TournamentType.valueOf(req.getTournamentType()) : null);
+        
+        event.setContactNumber(req.getContactNumber());
+        event.setContactEmail(req.getContactEmail());
+        event.setOtherContacts(req.getOtherContacts());
+        event.setBannerImage(req.getBannerImage());
+        event.setTournamentLevel(req.getTournamentLevel());
+        event.setDescription(req.getDescription());
+        event.setStartTime(req.getStartTime());
+        event.setDueTime(req.getDueTime());
+        if (req.getMinAge() != null) {
+            event.setMinAge(req.getMinAge());
+        }
+        if (req.getMaxAge() != null) {
+            event.setMaxAge(req.getMaxAge());
+        }
+
+        event.setUpdatedAt(LocalDateTime.now());
+        
+        if (event.getSponsors() != null) {
+            event.getSponsors().clear();
+        } else {
+            event.setSponsors(new java.util.ArrayList<>());
+        }
+        if (req.getSponsors() != null) {
+            for (SponsorDto s : req.getSponsors()) {
+                event.getSponsors().add(EventSponsor.builder()
+                        .event(event)
+                        .category(s.getCategory())
+                        .name(s.getName())
+                        .url(s.getUrl())
+                        .build());
+            }
+        }
+        
+        SportsEvent saved = eventRepo.save(event);
+        
+        // Clean and reschedule notification rules on tournament update
+        if (req.getNotifications() != null) {
+            notifRepo.deleteByEventId(saved.getId());
+            schedulerRepo.deleteByEventId(saved.getId());
+            scheduleNotifications(saved, req.getNotifications());
+        }
+
+        return saved;
+    }
+
+    // --- Player Category CRUD ---
+    
+    @Override
+    @Transactional
+    public PlayerCategory createCategory(com.manacommunity.api.dto.PlayerCategoryRequest req) {
+        PlayerCategory cat = PlayerCategory.builder()
+                .name(req.getName())
+                .category_type(req.getCategoryType())
+                .description(req.getDescription())
+                .minAge(req.getMinAge())
+                .maxAge(req.getMaxAge())
+                .gender(req.getGender())
+                .type(req.getType())
+                .build();
+        if (req.getCommunityId() != null) {
+            cat.setCommunity(communityRepo.getReferenceById(req.getCommunityId()));
+        }
+        return categoryRepo.save(cat);
+    }
+
+    @Override
+    @Transactional
+    public PlayerCategory updateCategory(Long id, com.manacommunity.api.dto.PlayerCategoryRequest req) {
+        PlayerCategory cat = categoryRepo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("PlayerCategory", id));
+        cat.setName(req.getName());
+        cat.setCategory_type(req.getCategoryType());
+        cat.setDescription(req.getDescription());
+        cat.setMinAge(req.getMinAge());
+        cat.setMaxAge(req.getMaxAge());
+        cat.setGender(req.getGender());
+        if (req.getCommunityId() != null) {
+            cat.setCommunity(communityRepo.getReferenceById(req.getCommunityId()));
+        } else {
+            cat.setCommunity(null);
+        }
+        return categoryRepo.save(cat);
+    }
+
+    @Override
+    @Transactional
+    public void deleteCategory(Long id) {
+        categoryRepo.deleteById(id);
+    }
+
+    private String listToCommaString(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return null;
+        return ids.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+    }
+}

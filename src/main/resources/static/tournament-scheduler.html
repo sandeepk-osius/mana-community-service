@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Tournament Scheduler — CommUnity Sports Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0e17;--surface:#111827;--card:#1a2236;--border:#2a3654;
+  --accent:#c8ff00;--accent-dim:rgba(200,255,0,.15);--accent-glow:0 0 20px rgba(200,255,0,.3);
+  --cyan:#00e5ff;--red:#ff4757;--green:#00e676;
+  --text:#e8ecf4;--text-dim:#7a8baa;--text-muted:#4a5568;
+  --radius:12px;--radius-sm:8px;
+}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+h1,h2,h3,.label-hero{font-family:'Bebas Neue',sans-serif;letter-spacing:1.5px}
+
+/* ── HEADER ─────────────────────────────── */
+.header{background:linear-gradient(135deg,#0f1729 0%,#1a2744 100%);border-bottom:1px solid var(--border);padding:20px 40px;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:28px;color:var(--accent);text-shadow:var(--accent-glow)}
+.header .subtitle{color:var(--text-dim);font-size:13px;letter-spacing:2px;text-transform:uppercase}
+.header-actions{display:flex;gap:12px}
+
+/* ── BUTTONS ────────────────────────────── */
+.btn{font-family:'Inter',sans-serif;font-weight:600;padding:10px 22px;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:13px;transition:all .25s;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{background:var(--accent);color:#0a0e17;box-shadow:0 0 15px rgba(200,255,0,.2)}
+.btn-primary:hover{box-shadow:0 0 30px rgba(200,255,0,.4);transform:translateY(-1px)}
+.btn-ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.btn-ghost:hover{background:var(--accent-dim)}
+.btn-danger{background:var(--red);color:#fff}
+.btn-sm{padding:6px 14px;font-size:12px}
+
+/* ── LAYOUT ─────────────────────────────── */
+.container{max-width:1200px;margin:0 auto;padding:30px 24px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:768px){.grid-2{grid-template-columns:1fr}}
+
+/* ── CARDS ──────────────────────────────── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--cyan))}
+.card-title{font-size:20px;color:var(--accent);margin-bottom:16px}
+
+/* ── FORM ───────────────────────────────── */
+.form-group{margin-bottom:18px}
+.form-label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-dim);margin-bottom:6px;font-weight:600}
+.form-input,.form-select{width:100%;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;font-family:'Inter',sans-serif;transition:border .2s}
+.form-input:focus,.form-select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.form-select option{background:var(--surface);color:var(--text)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.form-check{display:flex;align-items:center;gap:8px;cursor:pointer}
+.form-check input[type="checkbox"]{accent-color:var(--accent);width:18px;height:18px}
+.form-check label{font-size:13px;color:var(--text);cursor:pointer}
+
+/* ── TYPE SELECTOR PILLS ────────────────── */
+.type-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:8px}
+@media(max-width:768px){.type-grid{grid-template-columns:repeat(2,1fr)}}
+.type-pill{background:var(--surface);border:2px solid var(--border);border-radius:var(--radius-sm);padding:14px 12px;cursor:pointer;transition:all .25s;text-align:center}
+.type-pill:hover{border-color:var(--text-dim);transform:translateY(-2px)}
+.type-pill.active{border-color:var(--accent);background:var(--accent-dim);box-shadow:var(--accent-glow)}
+.type-pill .tp-name{font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--text);letter-spacing:1px}
+.type-pill.active .tp-name{color:var(--accent)}
+.type-pill .tp-desc{font-size:10px;color:var(--text-dim);margin-top:4px;line-height:1.3}
+.type-pill .tp-badge{display:inline-block;font-size:9px;background:rgba(0,229,255,.1);color:var(--cyan);padding:2px 6px;border-radius:4px;margin-top:6px}
+
+/* ── TABLE ──────────────────────────────── */
+.table-wrap{overflow-x:auto;margin-top:20px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:10px 14px;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);border-bottom:1px solid var(--border);font-weight:600}
+td{padding:10px 14px;font-size:13px;border-bottom:1px solid rgba(42,54,84,.4)}
+tr:hover td{background:rgba(200,255,0,.03)}
+.status-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.status-DRAFT{background:rgba(122,139,170,.15);color:var(--text-dim)}
+.status-ACTIVE{background:rgba(0,230,118,.12);color:var(--green)}
+.status-LIVE{background:rgba(200,255,0,.15);color:var(--accent)}
+.status-COMPLETED{background:rgba(0,229,255,.1);color:var(--cyan)}
+
+/* ── MODAL OVERLAY ──────────────────────── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);z-index:1000;justify-content:center;align-items:flex-start;padding:40px 20px;overflow-y:auto}
+.modal-overlay.open{display:flex}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:800px;padding:0;position:relative;animation:slideUp .3s ease}
+@keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
+.modal-header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-header h2{font-size:22px;color:var(--accent)}
+.modal-close{background:none;border:none;color:var(--text-dim);font-size:24px;cursor:pointer;padding:4px 8px}
+.modal-close:hover{color:var(--red)}
+.modal-body{padding:24px 28px}
+.modal-footer{padding:16px 28px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:12px}
+
+/* ── CONDITIONAL SECTIONS ───────────────── */
+.conditional{display:none}
+.conditional.show{display:block}
+
+/* ── TOAST ──────────────────────────────── */
+.toast{position:fixed;bottom:30px;right:30px;padding:14px 24px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;z-index:2000;animation:fadeIn .3s;display:none}
+.toast.success{background:var(--green);color:#0a0e17;display:block}
+.toast.error{background:var(--red);color:#fff;display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── EMPTY STATE ────────────────────────── */
+.empty-state{text-align:center;padding:60px 20px;color:var(--text-dim)}
+.empty-state .icon{font-size:48px;margin-bottom:16px}
+.empty-state p{font-size:14px;margin-bottom:20px}
+
+/* ── SPINNER ────────────────────────────── */
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--accent-dim);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ═══════ HEADER ═══════ -->
+<header class="header">
+  <div>
+    <h1>⚡ TOURNAMENT SCHEDULER</h1>
+    <div class="subtitle">CommUnity Sports Command Center</div>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-primary" id="btnNewConfig" onclick="openModal()">
+      ＋ New Schedule Config
+    </button>
+  </div>
+</header>
+
+<!-- ═══════ MAIN CONTENT ═══════ -->
+<div class="container">
+
+  <!-- Config List Table -->
+  <div class="card" id="configListCard">
+    <h3 class="card-title">Tournament Configurations</h3>
+    <div id="configListContent">
+      <div class="empty-state" id="emptyState">
+        <div class="icon">🏆</div>
+        <p>No tournament configurations yet.<br/>Click "New Schedule Config" to create your first one.</p>
+      </div>
+      <div class="table-wrap" id="configTableWrap" style="display:none">
+        <table>
+          <thead><tr>
+            <th>Tournament</th><th>Type</th><th>Sport Event</th><th>Teams</th><th>Start</th><th>Status</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="configTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ MODAL — Tournament Config Form ═══════ -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalTitle">New Tournament Configuration</h2>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="configForm" onsubmit="return false;">
+        <input type="hidden" id="fConfigId"/>
+
+        <!-- ROW 1: Name + Event Dropdown -->
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Tournament Name *</label>
+            <input class="form-input" id="fName" placeholder="e.g. Champions League 2026" required/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Sport Event</label>
+            <select class="form-select" id="fEvent"><option value="">— Select Event —</option></select>
+          </div>
+        </div>
+
+        <!-- Tournament Type Pills -->
+        <div class="form-group">
+          <label class="form-label">Tournament Type *</label>
+          <div class="type-grid" id="typeGrid"></div>
+          <input type="hidden" id="fType" required/>
+        </div>
+
+        <!-- ROW 2: Teams + Start/End -->
+        <div class="form-row-3">
+          <div class="form-group">
+            <label class="form-label">Total Teams *</label>
+            <input class="form-input" id="fTeams" type="number" min="2" max="64" value="8" required/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Start Date *</label>
+            <input class="form-input" id="fStartDate" type="date" required/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Date</label>
+            <input class="form-input" id="fEndDate" type="date"/>
+          </div>
+        </div>
+
+        <!-- GROUP STAGE (conditional) -->
+        <div class="conditional" id="groupSection">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Number of Groups</label>
+              <input class="form-input" id="fGroups" type="number" min="2" max="8" value="2"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Teams Advancing per Group</label>
+              <input class="form-input" id="fAdvancing" type="number" min="1" max="8" value="2"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- SWISS (conditional) -->
+        <div class="conditional" id="swissSection">
+          <div class="form-group">
+            <label class="form-label">Swiss Rounds</label>
+            <input class="form-input" id="fSwissRounds" type="number" min="1" max="20" value="3"/>
+          </div>
+        </div>
+
+        <!-- Match Config -->
+        <div class="form-row-3">
+          <div class="form-group">
+            <label class="form-label">Match Duration (min)</label>
+            <input class="form-input" id="fDuration" type="number" min="10" max="600" value="90"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Break Between (min)</label>
+            <input class="form-input" id="fBreak" type="number" min="0" max="120" value="30"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Venue</label>
+            <input class="form-input" id="fVenue" placeholder="e.g. Main Ground"/>
+          </div>
+        </div>
+
+        <!-- Points System -->
+        <div class="form-row-3">
+          <div class="form-group">
+            <label class="form-label">Points for Win</label>
+            <input class="form-input" id="fPtsWin" type="number" min="0" value="2"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Points for Draw</label>
+            <input class="form-input" id="fPtsDraw" type="number" min="0" value="1"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Points for Loss</label>
+            <input class="form-input" id="fPtsLoss" type="number" min="0" value="0"/>
+          </div>
+        </div>
+
+        <!-- Checkboxes -->
+        <div class="form-row" style="margin-bottom:0">
+          <div class="form-check">
+            <input type="checkbox" id="fThirdPlace" checked/>
+            <label for="fThirdPlace">3rd Place Match</label>
+          </div>
+          <div class="form-check">
+            <input type="checkbox" id="fSeeding"/>
+            <label for="fSeeding">Seeded Draw</label>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="btnSave" onclick="saveConfig()">
+        Save Configuration
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '/api/tournament';
+const TOKEN = localStorage.getItem('token') || '';
+const headers = ()=> ({'Content-Type':'application/json','Authorization':'Bearer '+TOKEN});
+
+// ── STATE ──────────────────────────────────
+let tournamentTypes = [];
+let events = [];
+let configs = [];
+let editingId = null;
+
+// ── INIT ───────────────────────────────────
+document.addEventListener('DOMContentLoaded', async ()=>{
+  await Promise.all([loadTypes(), loadEvents(), loadConfigs()]);
+});
+
+async function apiFetch(url, opts={}){
+  opts.headers = headers();
+  const res = await fetch(url, opts);
+  if(!res.ok){
+    const txt = await res.text();
+    throw new Error(txt || res.statusText);
+  }
+  if(res.status===204) return null;
+  return res.json();
+}
+
+// ── LOAD TOURNAMENT TYPES ──────────────────
+async function loadTypes(){
+  try{
+    tournamentTypes = await apiFetch(API+'/types');
+    renderTypePills();
+  }catch(e){
+    // Fallback hardcoded types
+    tournamentTypes = [
+      {id:'KNOCKOUT',name:'Knockout',description:'Single elimination',teamRange:'2-64',formatNote:'ceil(log2 N) rounds'},
+      {id:'GROUP_KNOCKOUT',name:'Group + Knockout',description:'Groups then knockout',teamRange:'4-32',formatNote:'Group + KO'},
+      {id:'ROUND_ROBIN',name:'Round Robin',description:'Everyone vs everyone',teamRange:'3-20',formatNote:'N*(N-1)/2'},
+      {id:'DOUBLE_ELIMINATION',name:'Double Elimination',description:'Two losses to exit',teamRange:'4-32',formatNote:'~2x KO'},
+      {id:'SWISS',name:'Swiss System',description:'Score-paired rounds',teamRange:'4-128',formatNote:'ceil(log2 N) rounds'},
+      {id:'SUPER_LEAGUE',name:'Super League',description:'IPL-style playoffs',teamRange:'6-10',formatNote:'League + 4'}
+    ];
+    renderTypePills();
+  }
+}
+
+function renderTypePills(){
+  const grid = document.getElementById('typeGrid');
+  grid.innerHTML = tournamentTypes.map(t=>`
+    <div class="type-pill" data-type="${t.id}" onclick="selectType('${t.id}')">
+      <div class="tp-name">${t.name}</div>
+      <div class="tp-desc">${t.description}</div>
+      <div class="tp-badge">${t.teamRange} teams • ${t.formatNote}</div>
+    </div>
+  `).join('');
+}
+
+function selectType(typeId){
+  document.querySelectorAll('.type-pill').forEach(p=>p.classList.remove('active'));
+  document.querySelector(`.type-pill[data-type="${typeId}"]`)?.classList.add('active');
+  document.getElementById('fType').value = typeId;
+  // Show/hide conditional sections
+  document.getElementById('groupSection').className = 'conditional'+(typeId==='GROUP_KNOCKOUT'?' show':'');
+  document.getElementById('swissSection').className = 'conditional'+(typeId==='SWISS'?' show':'');
+}
+
+// ── LOAD EVENTS FOR DROPDOWN ───────────────
+async function loadEvents(){
+  try{
+    events = await apiFetch(API+'/events');
+    const sel = document.getElementById('fEvent');
+    sel.innerHTML = '<option value="">— Select Event —</option>' +
+      events.map(e=>`<option value="${e.id}">${e.name} (${e.sportName} • ${e.eventDateStart||''})</option>`).join('');
+  }catch(e){ console.warn('Events load failed:',e); }
+}
+
+// ── LOAD EXISTING CONFIGS ──────────────────
+async function loadConfigs(){
+  try{
+    configs = await apiFetch(API+'/configs');
+    renderConfigTable();
+  }catch(e){ console.warn('Configs load failed:',e); }
+}
+
+function renderConfigTable(){
+  const tbody = document.getElementById('configTableBody');
+  const empty = document.getElementById('emptyState');
+  const wrap  = document.getElementById('configTableWrap');
+  if(!configs||configs.length===0){
+    empty.style.display='block'; wrap.style.display='none'; return;
+  }
+  empty.style.display='none'; wrap.style.display='block';
+  tbody.innerHTML = configs.map(c=>`<tr>
+    <td style="font-weight:600;color:var(--accent)">${c.tournamentName}</td>
+    <td>${formatType(c.tournamentType)}</td>
+    <td>${c.eventName||'—'}</td>
+    <td>${c.totalTeams||'—'}</td>
+    <td>${c.startDate||'—'}</td>
+    <td><span class="status-badge status-${c.status}">${c.status}</span></td>
+    <td>
+      <button class="btn btn-ghost btn-sm" onclick="editConfig(${c.id})">Edit</button>
+    </td>
+  </tr>`).join('');
+}
+
+function formatType(t){
+  const map={KNOCKOUT:'Knockout',GROUP_KNOCKOUT:'Group+KO',ROUND_ROBIN:'Round Robin',
+    DOUBLE_ELIMINATION:'Double Elim',SWISS:'Swiss',SUPER_LEAGUE:'Super League'};
+  return map[t]||t;
+}
+
+// ── MODAL OPEN / CLOSE ─────────────────────
+function openModal(configId){
+  editingId = configId||null;
+  document.getElementById('modalTitle').textContent = editingId?'Edit Tournament Configuration':'New Tournament Configuration';
+  document.getElementById('btnSave').textContent = editingId?'Update Configuration':'Save Configuration';
+  if(!editingId) resetForm();
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal(){
+  document.getElementById('modalOverlay').classList.remove('open');
+  editingId=null;
+}
+
+function resetForm(){
+  document.getElementById('fConfigId').value='';
+  document.getElementById('fName').value='';
+  document.getElementById('fEvent').value='';
+  document.getElementById('fType').value='';
+  document.getElementById('fTeams').value='8';
+  document.getElementById('fStartDate').value='';
+  document.getElementById('fEndDate').value='';
+  document.getElementById('fGroups').value='2';
+  document.getElementById('fAdvancing').value='2';
+  document.getElementById('fSwissRounds').value='3';
+  document.getElementById('fDuration').value='90';
+  document.getElementById('fBreak').value='30';
+  document.getElementById('fVenue').value='';
+  document.getElementById('fPtsWin').value='2';
+  document.getElementById('fPtsDraw').value='1';
+  document.getElementById('fPtsLoss').value='0';
+  document.getElementById('fThirdPlace').checked=true;
+  document.getElementById('fSeeding').checked=false;
+  document.querySelectorAll('.type-pill').forEach(p=>p.classList.remove('active'));
+  document.getElementById('groupSection').className='conditional';
+  document.getElementById('swissSection').className='conditional';
+}
+
+async function editConfig(id){
+  try{
+    const c = await apiFetch(API+'/config/'+id);
+    editingId = id;
+    document.getElementById('fConfigId').value=c.id;
+    document.getElementById('fName').value=c.tournamentName||'';
+    document.getElementById('fEvent').value=c.eventId||'';
+    document.getElementById('fTeams').value=c.totalTeams||8;
+    document.getElementById('fStartDate').value=c.startDate||'';
+    document.getElementById('fEndDate').value=c.endDate||'';
+    document.getElementById('fGroups').value=c.numberOfGroups||2;
+    document.getElementById('fAdvancing').value=c.teamsAdvancingPerGroup||2;
+    document.getElementById('fSwissRounds').value=c.swissRounds||3;
+    document.getElementById('fDuration').value=c.matchDurationMinutes||90;
+    document.getElementById('fBreak').value=c.breakBetweenMatchesMinutes||30;
+    document.getElementById('fVenue').value=c.venueName||'';
+    document.getElementById('fPtsWin').value=c.pointsForWin??2;
+    document.getElementById('fPtsDraw').value=c.pointsForDraw??1;
+    document.getElementById('fPtsLoss').value=c.pointsForLoss??0;
+    document.getElementById('fThirdPlace').checked=c.thirdPlaceMatch!==false;
+    document.getElementById('fSeeding').checked=c.hasSeeding===true;
+    if(c.tournamentType) selectType(c.tournamentType);
+    openModal(id);
+  }catch(e){ showToast('Failed to load config','error'); }
+}
+
+// ── SAVE / UPDATE ──────────────────────────
+async function saveConfig(){
+  const type = document.getElementById('fType').value;
+  const name = document.getElementById('fName').value.trim();
+  if(!name){showToast('Tournament name is required','error');return;}
+  if(!type){showToast('Select a tournament type','error');return;}
+
+  // Get sportId and communityId from selected event
+  const eventId = document.getElementById('fEvent').value||null;
+  let sportId=1, communityId=1;
+  if(eventId){
+    const ev = events.find(e=>e.id==eventId);
+    if(ev){sportId=ev.sportId;communityId=ev.communityId;}
+  }
+
+  const body = {
+    tournamentName: name,
+    sportId: sportId,
+    communityId: communityId,
+    eventId: eventId?Number(eventId):null,
+    tournamentType: type,
+    totalTeams: Number(document.getElementById('fTeams').value)||8,
+    teamIds: [],
+    numberOfGroups: type==='GROUP_KNOCKOUT'?Number(document.getElementById('fGroups').value):null,
+    teamsAdvancingPerGroup: type==='GROUP_KNOCKOUT'?Number(document.getElementById('fAdvancing').value):null,
+    swissRounds: type==='SWISS'?Number(document.getElementById('fSwissRounds').value):null,
+    thirdPlaceMatch: document.getElementById('fThirdPlace').checked,
+    hasSeeding: document.getElementById('fSeeding').checked,
+    startDate: document.getElementById('fStartDate').value||null,
+    endDate: document.getElementById('fEndDate').value||null,
+    matchDurationMinutes: Number(document.getElementById('fDuration').value)||90,
+    breakBetweenMatchesMinutes: Number(document.getElementById('fBreak').value)||30,
+    venueName: document.getElementById('fVenue').value||null,
+    pointsForWin: Number(document.getElementById('fPtsWin').value),
+    pointsForDraw: Number(document.getElementById('fPtsDraw').value),
+    pointsForLoss: Number(document.getElementById('fPtsLoss').value)
+  };
+
+  const btn = document.getElementById('btnSave');
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Saving...';
+
+  try{
+    if(editingId){
+      await apiFetch(API+'/config/'+editingId,{method:'PUT',body:JSON.stringify(body)});
+      showToast('Configuration updated successfully!','success');
+    }else{
+      await apiFetch(API+'/config',{method:'POST',body:JSON.stringify(body)});
+      showToast('Configuration saved successfully!','success');
+    }
+    closeModal();
+    await loadConfigs();
+  }catch(e){
+    showToast('Save failed: '+e.message,'error');
+  }finally{
+    btn.disabled=false;
+    btn.textContent=editingId?'Update Configuration':'Save Configuration';
+  }
+}
+
+// ── TOAST ──────────────────────────────────
+function showToast(msg,type='success'){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast '+type;
+  setTimeout(()=>{t.className='toast'},3000);
+}
+
+// Close modal on overlay click
+document.getElementById('modalOverlay').addEventListener('click',e=>{
+  if(e.target===e.currentTarget) closeModal();
+});
+</script>
+</body>
+</html>
