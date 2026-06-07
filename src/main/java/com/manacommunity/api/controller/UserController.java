@@ -153,6 +153,30 @@ public class UserController {
                         .build()).toList());
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<UserResponse> getUserById(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        AppUser user = appUserRepo.findById(id)
+                .orElseThrow(() -> new com.manacommunity.api.exception.ResourceNotFoundException("User", id));
+        return ResponseEntity.ok(UserResponse.builder()
+                .id(user.getId())
+                .fullName(user.getFullName())
+                .email(user.getEmail())
+                .phone(user.getPhone())
+                .role(user.getRole())
+                .kycStatus(user.getKycStatus())
+                .profilePicUrl(user.getProfilePicUrl())
+                .gender(user.getGender())
+                .dateOfBirth(user.getDateOfBirth())
+                .flatNo(user.getFlatNo())
+                .block(user.getBlock())
+                .communityId(user.getCommunity() != null ? user.getCommunity().getId() : null)
+                .isActive(user.getIsActive())
+                .permissions(getPermissionsForUser(user))
+                .build());
+    }
+
     @PutMapping("/{id}/status")
     public ResponseEntity<Void> toggleUserStatus(@PathVariable Long id) {
         AppUser user = appUserRepo.findById(id)
