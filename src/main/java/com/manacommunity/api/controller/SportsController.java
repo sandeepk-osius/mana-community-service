@@ -21,6 +21,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+import com.manacommunity.api.service.PermissionCheckService;
+import static com.manacommunity.api.constants.PermissionConstants.*;
+
 /**
  * BUG FIXES applied:
  *
@@ -44,9 +47,12 @@ public class SportsController {
     private final PlayerCategoryRepository categoryRepo; // BUG FIX: was missing
     private final LoggedInUserService loggedInUserService;
     private final TournamentService tournamentService;
+    private final PermissionCheckService permissionCheckService;
 
     @GetMapping("/meta")
-    public ResponseEntity<List<SportsMeta>> getAllSports() {
+    public ResponseEntity<List<SportsMeta>> getAllSports(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_SPORTS_MAIN, VIEW_SPORTS_MENU);
         return ResponseEntity.ok(sportMetaRepo.findByActiveTrue());
     }
 
@@ -54,6 +60,7 @@ public class SportsController {
     public ResponseEntity<SportsMeta> createSport(
             @RequestBody SportsMeta sport,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_SPORTS_MAIN);
         if (sport.getActive() == null) {
             sport.setActive(true);
         }
@@ -75,6 +82,7 @@ public class SportsController {
             @PathVariable Long id, 
             @RequestBody SportsMeta req,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_SPORTS_MAIN);
         return sportMetaRepo.findById(id).map(sport -> {
             if (sport.getCommunityId() == null) {
                 if (principal == null) {
@@ -115,6 +123,7 @@ public class SportsController {
     public ResponseEntity<Void> deleteSport(
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, DELETE_SPORTS_MAIN);
         return sportMetaRepo.findById(id).map(sport -> {
             if (sport.getCommunityId() == null) {
                 if (principal == null) {
@@ -149,6 +158,7 @@ public class SportsController {
     @GetMapping("/categories")
     public ResponseEntity<List<PlayerCategory>> getCategories(
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_SPORTS_MAIN, VIEW_SPORTS_MENU);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         if ("SUPER_ADMIN".equals(loggedInUser.getRole())) {
             return ResponseEntity.ok(categoryRepo.findAll());
@@ -165,6 +175,7 @@ public class SportsController {
     public ResponseEntity<PlayerCategory> createCategory(
             @Valid @RequestBody PlayerCategoryRequest req,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_SPORTS_MAIN);
 
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         String userRole = loggedInUser.getRole(); // e.g., "SUPER_ADMIN", "ADMIN", "SPORTS_ADMIN", "VENDOR"
@@ -192,6 +203,7 @@ public class SportsController {
             @PathVariable Long id,
             @Valid @RequestBody com.manacommunity.api.dto.PlayerCategoryRequest req,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         return ResponseEntity.ok(eventService.updateCategory(id, req));
     }
@@ -200,6 +212,7 @@ public class SportsController {
     public ResponseEntity<Void> deleteCategory(
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, DELETE_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         eventService.deleteCategory(id);
         return ResponseEntity.noContent().build();
@@ -210,6 +223,7 @@ public class SportsController {
     public ResponseEntity<SportsEvent> createSportsEvent(
             @Valid @RequestBody SportsEventRequest req,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
 
         if (!"SUPER_ADMIN".equals(loggedInUser.getRole())) {
@@ -224,6 +238,7 @@ public class SportsController {
     public ResponseEntity<SportsEvent> updateStatus(
             @PathVariable Long id, @RequestParam String status,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         return ResponseEntity.ok(eventService.updateStatus(id, status));
     }
@@ -232,6 +247,7 @@ public class SportsController {
     public ResponseEntity<SportsEvent> updateTournament(
             @PathVariable Long id, @Valid @RequestBody TournamentRequest req,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
 
         Tournament tournament = tournamentService.saveTournamentRecord(req, req.getAllowAdminChat());
@@ -245,6 +261,7 @@ public class SportsController {
     public ResponseEntity<SportsEvent> updateSportsEvent(
             @PathVariable Long id, @Valid @RequestBody SportsEventRequest req,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
 
         if (!"SUPER_ADMIN".equals(loggedInUser.getRole())) {
@@ -259,25 +276,34 @@ public class SportsController {
     public ResponseEntity<Void> deleteTournament(
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, DELETE_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         eventService.deleteEvent(id);
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping({"/events/{id}", "/tournaments/{id}"})
-    public ResponseEntity<SportsEvent> getTournamentById(@PathVariable Long id) {
+    public ResponseEntity<SportsEvent> getTournamentById(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_SPORTS_MAIN);
         return ResponseEntity.ok(eventService.getEventById(id));
     }
 
     @GetMapping({"/events/{eventId}/confirmed-count", "/tournaments/{eventId}/confirmed-count"})
-    public ResponseEntity<Long> getConfirmedCount(@PathVariable Long eventId) {
+    public ResponseEntity<Long> getConfirmedCount(
+            @PathVariable Long eventId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_EVENT_REGISTRATIONS);
         return ResponseEntity.ok(eventService.getConfirmedRegistrationCount(eventId));
     }
 
     @PutMapping({"/events/{id}/committee", "/tournaments/{id}/committee"})
     public ResponseEntity<SportsEvent> updateCommittee(
             @PathVariable Long id,
-            @RequestBody List<Long> committeeIds) {
+            @RequestBody List<Long> committeeIds,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_SPORTS_MAIN);
         SportsEvent event = eventService.getEventById(id);
         String idsString = committeeIds == null ? "" : 
             committeeIds.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
@@ -289,6 +315,7 @@ public class SportsController {
     public ResponseEntity<List<Map<String, Object>>> getTournamentMap(
             @RequestParam(required = false) Long communityId,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_SPORTS_MAIN, VIEW_SPORTS_MENU);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         Long targetCommunityId = communityId;
         if (!"SUPER_ADMIN".equals(loggedInUser.getRole())) {
@@ -301,6 +328,7 @@ public class SportsController {
     public ResponseEntity<List<SportsEvent>> getOpenTournaments(
             @RequestParam(required = false) Long communityId,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         Long targetCommunityId = communityId;
         if (!"SUPER_ADMIN".equals(loggedInUser.getRole())) {
@@ -315,6 +343,7 @@ public class SportsController {
     @GetMapping({"/events/open-all", "/tournaments/open-all"})
     public ResponseEntity<List<SportsEvent>> getAllOpenTournaments(
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         boolean isSuperAdmin = "SUPER_ADMIN".equals(loggedInUser.getRole());
         if (!isSuperAdmin) {
@@ -330,6 +359,7 @@ public class SportsController {
     @GetMapping({"/events/closed", "/tournaments/closed"})
     public ResponseEntity<List<SportsEvent>> getClosedTournaments(
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         boolean isSuperAdmin = "SUPER_ADMIN".equals(loggedInUser.getRole());
         if (!isSuperAdmin) {
@@ -345,6 +375,7 @@ public class SportsController {
     @GetMapping({"/events/mine", "/tournaments/mine"})
     public ResponseEntity<List<SportsEvent>> getMyTournaments(
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_EVENT_REGISTRATIONS);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         return ResponseEntity.ok(eventService.getMyEvents(loggedInUser.getId()));
     }
@@ -352,6 +383,7 @@ public class SportsController {
     @GetMapping({"/events/all", "/tournaments/all"})
     public ResponseEntity<List<SportsEvent>> getAllTournaments(
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         boolean isSuperAdmin = "SUPER_ADMIN".equals(loggedInUser.getRole());
         if (!isSuperAdmin) {
@@ -368,6 +400,7 @@ public class SportsController {
     public ResponseEntity<List<SportsEvent>> getCommunityTournaments(
             @RequestParam Long communityId,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_SPORTS_MAIN);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         Long targetCommunityId = communityId;
         if (!"SUPER_ADMIN".equals(loggedInUser.getRole())) {
@@ -383,6 +416,7 @@ public class SportsController {
     public ResponseEntity<SportsEventRegistration> register(
             @Valid @RequestBody RegistrationRequest req,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_EVENT_REGISTRATIONS);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(eventService.registerUser(req, loggedInUser.getId()));
@@ -391,6 +425,7 @@ public class SportsController {
     @DeleteMapping("/register/{registrationId}")
     public ResponseEntity<Void> withdraw(@PathVariable Long registrationId,
                                          @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_EVENT_REGISTRATIONS, DELETE_EVENT_REGISTRATIONS);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         eventService.withdraw(registrationId, loggedInUser.getId());
         return ResponseEntity.noContent().build();
@@ -400,6 +435,7 @@ public class SportsController {
     public ResponseEntity<List<SportsEventRegistration>> getTournamentRegistrations(
             @PathVariable Long eventId,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_EVENT_REGISTRATIONS);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         return ResponseEntity.ok(eventService.getEventRegistrations(eventId));
     }
@@ -407,6 +443,7 @@ public class SportsController {
     @GetMapping("/registrations/mine")
     public ResponseEntity<List<SportsEventRegistration>> getMyRegistrations(
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, VIEW_EVENT_REGISTRATIONS);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         return ResponseEntity.ok(eventService.getUserRegistrations(loggedInUser.getId()));
     }
@@ -415,6 +452,7 @@ public class SportsController {
     public ResponseEntity<SportsEventRegistration> confirmRegistration(
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_EVENT_REGISTRATIONS);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         return ResponseEntity.ok(eventService.confirmRegistration(id));
     }
@@ -423,13 +461,18 @@ public class SportsController {
     public ResponseEntity<SportsEventRegistration> nominateCaptain(
             @PathVariable Long id, 
             @RequestParam boolean nominate,
-            @RequestParam(required = false) String teamName) {
+            @RequestParam(required = false) String teamName,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_PLAYER_POOL);
         return ResponseEntity.ok(eventService.nominateCaptain(id, nominate, teamName));
     }
 
     @PutMapping("/registrations/{id}/confirm-captain")
     public ResponseEntity<SportsEventRegistration> confirmCaptain(
-            @PathVariable Long id, @RequestParam boolean confirm) {
+            @PathVariable Long id, 
+            @RequestParam boolean confirm,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_PLAYER_POOL);
         return ResponseEntity.ok(eventService.confirmCaptain(id, confirm));
     }
 }

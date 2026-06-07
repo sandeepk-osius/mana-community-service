@@ -23,6 +23,10 @@ spring:
 server:
   port: 8080
 
+app:
+  security:
+    mock-auth-enabled: true
+
 
 # CORS Configuration for React Frontend
 cors:

@@ -1,5 +1,6 @@
 package com.manacommunity.api.service.impl;
 
+import com.manacommunity.api.constants.PermissionConstants;
 import com.manacommunity.api.model.Community;
 import com.manacommunity.api.model.Role;
 import com.manacommunity.api.model.RolePermission;
@@ -18,39 +19,13 @@ public class CommunityRoleInitializer {
 
     private final RoleRepository roleRepo;
 
-    private static final List<String> ALL_PERMISSIONS = List.of(
-            "View Feed", "Create Post", "Delete Post", "Comment on Post",
-            "View Sports", "Register Sports", "Manage Tournaments", "Bidding Interface",
-            "View Marketplace", "Create Listing", "Delete Listing",
-            "View Jobs", "Create Job", "Apply Job",
-            "View Events", "Create Event", "Register Event",
-            "View Admin", "Verify KYC", "Bulk Upload", "Manage Communities", "Manage Roles"
-    );
-
     private static final Map<String, List<String>> ROLE_PERMISSIONS_MAP = Map.of(
-            "ADMIN", ALL_PERMISSIONS,
-            "SPORTS_ADMIN", List.of(
-                    "View Feed", "Create Post", "Comment on Post",
-                    "View Sports", "Register Sports", "Manage Tournaments", "Bidding Interface",
-                    "View Marketplace", "View Jobs", "View Events", "Create Event", "Register Event",
-                    "View Admin"
-            ),
-            "MEMBER", List.of(
-                    "View Feed", "Create Post", "Comment on Post",
-                    "View Sports", "Register Sports", "Bidding Interface",
-                    "View Marketplace", "View Jobs", "Apply Job", "View Events", "Register Event"
-            ),
-            "VENDOR", List.of(
-                    "View Feed", "Create Post", "Comment on Post",
-                    "View Sports", "View Marketplace", "Create Listing", "Delete Listing",
-                    "View Jobs", "Create Job", "View Events", "Register Event"
-            ),
-            "CASHIER", List.of(
-                    "View Feed", "Comment on Post", "View Sports", "View Marketplace", "View Jobs", "View Events"
-            ),
-            "STAFF", List.of(
-                    "View Feed", "Comment on Post", "View Sports", "View Marketplace", "View Jobs", "View Events"
-            )
+            "ADMIN", PermissionConstants.ADMIN_PERMISSIONS,
+            "SPORTS_ADMIN", PermissionConstants.SPORTS_ADMIN_PERMISSIONS,
+            "MEMBER", PermissionConstants.MEMBER_PERMISSIONS,
+            "VENDOR", PermissionConstants.VENDOR_PERMISSIONS,
+            "CASHIER", PermissionConstants.CASHIER_PERMISSIONS,
+            "STAFF", PermissionConstants.STAFF_PERMISSIONS
     );
 
     @Transactional

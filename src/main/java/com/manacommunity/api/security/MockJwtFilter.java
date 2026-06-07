@@ -10,6 +10,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -25,6 +26,9 @@ public class MockJwtFilter extends OncePerRequestFilter {
     private final AppUserRepository userRepository;
     private final RolePermissionRepository rolePermissionRepository;
 
+    @Value("${app.security.mock-auth-enabled:false}")
+    private boolean mockAuthEnabled;
+
     public MockJwtFilter(AppUserRepository userRepository, RolePermissionRepository rolePermissionRepository) {
         this.userRepository = userRepository;
         this.rolePermissionRepository = rolePermissionRepository;
@@ -33,10 +37,13 @@ public class MockJwtFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        
+
         final String authHeader = request.getHeader("Authorization");
-        
+
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            if (mockAuthEnabled && SecurityContextHolder.getContext().getAuthentication() == null) {
+                authenticateDefaultUser(request);
+            }
             filterChain.doFilter(request, response);
             return;
         }
@@ -67,18 +74,15 @@ public class MockJwtFilter extends OncePerRequestFilter {
             }
 
             if (user != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                List<RolePermission> permissions = rolePermissionRepository.findByRoleIgnoreCase(user.getRole());
                 List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
-                // Keep development safety/admin roles
-                authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
-                authorities.add(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"));
-                authorities.add(new SimpleGrantedAuthority("ROLE_AUCTION_ADMIN"));
-                authorities.add(new SimpleGrantedAuthority("ROLE_AUCTION_AUCTIONEER"));
-                authorities.add(new SimpleGrantedAuthority("ROLE_AUCTION_TEAM_OWNER"));
-                authorities.add(new SimpleGrantedAuthority("ROLE_MEMBER"));
+                // Only the user's ACTUAL role — no more hardcoded roles
                 authorities.add(new SimpleGrantedAuthority("ROLE_" + user.getRole().toUpperCase()));
-                
-                // Add dynamic database permissions
+
+                // Load permissions from DB: user-specific first, fallback to role-based
+                List<RolePermission> userPerms = rolePermissionRepository.findByUserId(user.getId());
+                List<RolePermission> permissions = userPerms.isEmpty()
+                        ? rolePermissionRepository.findByRoleIgnoreCase(user.getRole())
+                        : userPerms;
                 for (RolePermission perm : permissions) {
                     authorities.add(new SimpleGrantedAuthority(perm.getPermissionKey()));
                 }
@@ -99,5 +103,34 @@ public class MockJwtFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private void authenticateDefaultUser(HttpServletRequest request) {
+        AppUser user = userRepository.findAll().stream()
+                .filter(u -> "SUPER_ADMIN".equalsIgnoreCase(u.getRole()))
+                .findFirst()
+                .orElseGet(() -> userRepository.findAll().stream()
+                        .filter(u -> "ADMIN".equalsIgnoreCase(u.getRole()))
+                        .findFirst()
+                        .orElseGet(() -> userRepository.findAll().stream().findFirst().orElse(null)));
+
+        if (user == null) return;
+
+        List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+        authorities.add(new SimpleGrantedAuthority("ROLE_" + user.getRole().toUpperCase()));
+
+        List<RolePermission> userPerms = rolePermissionRepository.findByUserId(user.getId());
+        List<RolePermission> permissions = userPerms.isEmpty()
+                ? rolePermissionRepository.findByRoleIgnoreCase(user.getRole())
+                : userPerms;
+        for (RolePermission perm : permissions) {
+            authorities.add(new SimpleGrantedAuthority(perm.getPermissionKey()));
+        }
+
+        UserPrincipal principal = new UserPrincipal(user.getId(), user.getEmail(), user.getPasswordHash(), authorities);
+        UsernamePasswordAuthenticationToken authToken =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+        authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authToken);
     }
 }

@@ -1,3 +1,7 @@
 spring:
   application:
     name: mana-community-service
+
+app:
+  security:
+    mock-auth-enabled: true
