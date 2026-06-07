@@ -4,6 +4,7 @@ import com.manacommunity.api.model.AppUser;
 import com.manacommunity.api.repository.AppUserRepository;
 import com.manacommunity.api.security.UserPrincipal;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -54,6 +55,9 @@ public class SecurityConfig { // BUG FIX: was package-private
     @Autowired
     private MockJwtFilter mockJwtFilter;
 
+    @Value("${app.cors.allowed-origins}")
+    private List<String> allowedOrigins;
+
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -80,7 +84,7 @@ public class SecurityConfig { // BUG FIX: was package-private
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(Arrays.asList("http://localhost:5173", "http://localhost:3000"));
+        config.setAllowedOrigins(allowedOrigins);
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "X-Requested-With", "Accept"));
         config.setExposedHeaders(Arrays.asList("Authorization"));

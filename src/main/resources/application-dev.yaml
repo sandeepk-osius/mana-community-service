@@ -22,5 +22,7 @@ spring:
         use_sql_comments: false
 
 app:
+  cors:
+    allowed-origins: "http://localhost:5173,http://localhost:3000"
   security:
     mock-auth-enabled: true
