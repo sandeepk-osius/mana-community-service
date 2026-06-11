@@ -59,12 +59,12 @@ public class TournamentSchedulerService {
 
         // ── Generate schedule ───────────────────────────────────
         List<TournamentMatch> matches = switch (config.getTournamentType()) {
-            case KNOCKOUT          -> generateKnockout(config, teams);
-            case GROUP_KNOCKOUT    -> generateGroupKnockout(config, teams);
-            case ROUND_ROBIN       -> generateRoundRobin(config, teams);
-            case DOUBLE_ELIMINATION-> generateDoubleElimination(config, teams);
-            case SWISS             -> generateSwissRound1(config, teams);
-            case SUPER_LEAGUE      -> generateSuperLeague(config, teams);
+            case KNOCKOUT, KNOCKOUT_SINGLE, CUSTOM   -> generateKnockout(config, teams);
+            case GROUP_KNOCKOUT, GROUP_PLAYOFF        -> generateGroupKnockout(config, teams);
+            case ROUND_ROBIN, LEAGUE                  -> generateRoundRobin(config, teams);
+            case DOUBLE_ELIMINATION, KNOCKOUT_DOUBLE  -> generateDoubleElimination(config, teams);
+            case SWISS                                -> generateSwissRound1(config, teams);
+            case SUPER_LEAGUE                         -> generateSuperLeague(config, teams);
         };
 
         matchRepo.saveAll(matches);
@@ -1008,5 +1008,135 @@ public class TournamentSchedulerService {
             .build();
             
         matchRepo.save(m);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // BULK MATCH SAVE  (Save as Draft / Save & Publish from UI)
+    // ═══════════════════════════════════════════════════════════════
+
+    @Transactional
+    public int saveMatchesBulk(Long configId, List<BulkMatchSaveRequest.MatchData> matches) {
+        TournamentConfig config = configRepo.findById(configId)
+            .orElseThrow(() -> new IllegalArgumentException("Tournament config not found: " + configId));
+
+        // Replace all existing matches for this config
+        matchRepo.deleteByConfigId(configId);
+
+        List<TournamentMatch> entities = matches.stream()
+            .map(m -> buildMatchEntity(config, m))
+            .toList();
+
+        matchRepo.saveAll(entities);
+        log.info("Bulk-saved {} matches for config {}", entities.size(), configId);
+        return entities.size();
+    }
+
+    /**
+     * Updates the status of every match for a config.
+     * Used by "Save as Draft" (DRAFT) and "Save & Publish" (PUBLISHED).
+     */
+    @Transactional
+    public int updateMatchesStatus(Long configId, String statusStr) {
+        configRepo.findById(configId)
+            .orElseThrow(() -> new IllegalArgumentException("Tournament config not found: " + configId));
+
+        MatchStatus status = parseStatus(statusStr, MatchStatus.SCHEDULED);
+        int updated = matchRepo.updateStatusByConfigId(configId, status);
+
+        // Mirror the publish state on the parent config so listings stay in sync
+        TournamentConfig config = configRepo.findById(configId).orElseThrow();
+        if (status == MatchStatus.PUBLISHED) {
+            config.setStatus(TournamentConfig.TournamentStatus.ACTIVE);
+        } else if (status == MatchStatus.DRAFT) {
+            config.setStatus(TournamentConfig.TournamentStatus.DRAFT);
+        }
+        configRepo.save(config);
+
+        log.info("Updated {} matches to status {} for config {}", updated, status, configId);
+        return updated;
+    }
+
+    /**
+     * Deletes all matches for a config — used by the "Clear" button.
+     */
+    @Transactional
+    public int deleteMatchesByConfigId(Long configId) {
+        configRepo.findById(configId)
+            .orElseThrow(() -> new IllegalArgumentException("Tournament config not found: " + configId));
+
+        long count = matchRepo.countByConfigId(configId);
+        matchRepo.deleteByConfigId(configId);
+        log.info("Deleted {} matches for config {}", count, configId);
+        return (int) count;
+    }
+
+    private TournamentMatch buildMatchEntity(TournamentConfig config, BulkMatchSaveRequest.MatchData m) {
+        MatchRound round = stageToRound(m.stage());
+
+        AuctionTeam teamA = tryResolveTeam(m.homeId());
+        AuctionTeam teamB = tryResolveTeam(m.awayId());
+
+        LocalDateTime scheduledAt = parseScheduledAt(m.matchDate(), m.matchTime());
+
+        // Store names + group context in matchNotes so they survive even without linked team entities
+        String notes = String.format("{\"homeName\":\"%s\",\"awayName\":\"%s\",\"groupName\":\"%s\"}",
+            safe(m.homeName()), safe(m.awayName()), safe(m.groupName()));
+
+        return TournamentMatch.builder()
+            .config(config)
+            .round(round)
+            .matchNumber(m.matchNumber() != null ? m.matchNumber() : 0)
+            .teamA(teamA)
+            .teamB(teamB)
+            .scheduledAt(scheduledAt)
+            .durationMinutes(m.duration() != null ? m.duration() : 60)
+            .venueName(m.venue())
+            .courtNumber(m.court())
+            .status(parseStatus(m.status(), MatchStatus.SCHEDULED))
+            .matchNotes(notes)
+            .build();
+    }
+
+    /** Safely parse an incoming status string into a MatchStatus, falling back to a default. */
+    private MatchStatus parseStatus(String status, MatchStatus fallback) {
+        if (status == null || status.isBlank()) return fallback;
+        try {
+            return MatchStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            log.warn("Unknown match status '{}', defaulting to {}", status, fallback);
+            return fallback;
+        }
+    }
+
+    private MatchRound stageToRound(String stage) {
+        if (stage == null) return MatchRound.LEAGUE_MATCH;
+        return switch (stage.toUpperCase()) {
+            case "GROUP"   -> MatchRound.GROUP_STAGE;
+            case "PLAYOFF" -> MatchRound.SEMI_FINAL;
+            default        -> MatchRound.FINAL;  // KNOCKOUT
+        };
+    }
+
+    private AuctionTeam tryResolveTeam(String id) {
+        if (id == null || id.isBlank() || "TBD".equalsIgnoreCase(id) || "dummy".equalsIgnoreCase(id)) return null;
+        try {
+            long teamId = Long.parseLong(id);
+            return teamRepo.findById(teamId).orElse(null);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private LocalDateTime parseScheduledAt(String date, String time) {
+        try {
+            String t = (time != null && !time.isBlank()) ? time : "00:00";
+            return LocalDateTime.parse(date + "T" + t);
+        } catch (Exception e) {
+            return LocalDateTime.now();
+        }
+    }
+
+    private String safe(String s) {
+        return s == null ? "" : s.replace("\"", "'");
     }
 }

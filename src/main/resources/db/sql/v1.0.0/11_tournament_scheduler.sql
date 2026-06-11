@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS tournament_config (
     updated_at                  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT chk_tournament_type CHECK (tournament_type IN (
         'KNOCKOUT','GROUP_KNOCKOUT','ROUND_ROBIN',
-        'DOUBLE_ELIMINATION','SWISS','SUPER_LEAGUE'
+        'DOUBLE_ELIMINATION','SWISS','SUPER_LEAGUE',
+        'KNOCKOUT_SINGLE','KNOCKOUT_DOUBLE',
+        'GROUP_PLAYOFF','LEAGUE','CUSTOM'
     )),
     CONSTRAINT chk_tournament_status CHECK (status IN (
         'DRAFT','ACTIVE','LIVE','COMPLETED','CANCELLED'

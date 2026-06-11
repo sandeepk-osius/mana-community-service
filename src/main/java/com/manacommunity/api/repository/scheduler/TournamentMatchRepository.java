@@ -1,9 +1,12 @@
 package com.manacommunity.api.repository.scheduler;
 
+import com.manacommunity.api.model.scheduler.MatchStatus;
 import com.manacommunity.api.model.scheduler.TournamentMatch;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -26,4 +29,16 @@ public interface TournamentMatchRepository extends JpaRepository<TournamentMatch
 
     @Query("SELECT m FROM TournamentMatch m WHERE m.config.id=:cid AND m.status='SCHEDULED' ORDER BY m.scheduledAt")
     List<TournamentMatch> findUpcoming(@Param("cid") Long configId);
+
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("DELETE FROM TournamentMatch m WHERE m.config.id = :configId")
+    void deleteByConfigId(@Param("configId") Long configId);
+
+    long countByConfigId(Long configId);
+
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE TournamentMatch m SET m.status = :status WHERE m.config.id = :configId")
+    int updateStatusByConfigId(@Param("configId") Long configId, @Param("status") MatchStatus status);
 }

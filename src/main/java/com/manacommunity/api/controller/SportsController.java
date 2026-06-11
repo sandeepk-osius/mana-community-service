@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 
 import com.manacommunity.api.service.PermissionCheckService;
+import com.manacommunity.api.service.SportsEventCsvImportService;
+import org.springframework.web.multipart.MultipartFile;
 import static com.manacommunity.api.constants.PermissionConstants.*;
 
 /**
@@ -48,6 +50,7 @@ public class SportsController {
     private final LoggedInUserService loggedInUserService;
     private final TournamentService tournamentService;
     private final PermissionCheckService permissionCheckService;
+    private final SportsEventCsvImportService csvImportService;
 
     @GetMapping("/meta")
     public ResponseEntity<List<SportsMeta>> getAllSports(
@@ -416,7 +419,7 @@ public class SportsController {
     public ResponseEntity<SportsEventRegistration> register(
             @Valid @RequestBody RegistrationRequest req,
             @AuthenticationPrincipal UserPrincipal principal) {
-        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_EVENT_REGISTRATIONS);
+        permissionCheckService.requireAnyPermission(principal, VIEW_EVENT_REGISTRATIONS);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(eventService.registerUser(req, loggedInUser.getId()));
@@ -425,10 +428,20 @@ public class SportsController {
     @DeleteMapping("/register/{registrationId}")
     public ResponseEntity<Void> withdraw(@PathVariable Long registrationId,
                                          @AuthenticationPrincipal UserPrincipal principal) {
-        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_EVENT_REGISTRATIONS, DELETE_EVENT_REGISTRATIONS);
+        permissionCheckService.requireAnyPermission(principal, VIEW_EVENT_REGISTRATIONS);
         AppUser loggedInUser = loggedInUserService.resolve(principal);
         eventService.withdraw(registrationId, loggedInUser.getId());
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping({"/events/{eventId}/registrations/import", "/tournaments/{eventId}/registrations/import"})
+    public ResponseEntity<SportsEventCsvImportService.ImportResult> importRegistrations(
+            @PathVariable Long eventId,
+            @RequestParam("file") MultipartFile file,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        permissionCheckService.requireAnyPermission(principal, CREATE_EDIT_SPORTS_MAIN, CREATE_EDIT_EVENT_REGISTRATIONS);
+        SportsEventCsvImportService.ImportResult result = csvImportService.importRegistrations(eventId, file);
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping({"/events/{eventId}/registrations", "/tournaments/{eventId}/registrations"})

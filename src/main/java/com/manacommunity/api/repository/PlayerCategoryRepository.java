@@ -19,6 +19,8 @@ public interface PlayerCategoryRepository extends JpaRepository<PlayerCategory, 
     /** Find categories belonging to a specific community */
     List<PlayerCategory> findByCommunityId(Long communityId);
 
+    java.util.Optional<PlayerCategory> findByNameIgnoreCase(String name);
+
     /**
      * For non-super-admin users: returns DEFAULT type categories (visible to everyone)
      * PLUS categories belonging to the user's community.

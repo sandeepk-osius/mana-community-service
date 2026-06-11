@@ -8,6 +8,8 @@ import java.util.List;
 public interface SportsEventRegistrationRepository extends JpaRepository<SportsEventRegistration, Long> {
     boolean existsByEventIdAndUserId(Long eventId, Long userId);
     boolean existsByEventIdAndUserIdAndPlayerName(Long eventId, Long userId, String playerName);
+
+    boolean existsByEventIdAndUserIsNullAndPlayerName(Long eventId, String playerName);
     long countByEventId(Long eventId);
     List<SportsEventRegistration> findByEventId(Long eventId);
     List<SportsEventRegistration> findByUserId(Long userId);

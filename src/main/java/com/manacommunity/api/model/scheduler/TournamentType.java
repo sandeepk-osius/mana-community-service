@@ -17,5 +17,22 @@ public enum TournamentType {
     SWISS,
 
     /** Top teams play more games; designed like IPL */
-    SUPER_LEAGUE
+    SUPER_LEAGUE,
+
+    // ── Aliases sent from the SportsEvent UI ──────────────────────
+
+    /** Alias for KNOCKOUT (single-elimination) */
+    KNOCKOUT_SINGLE,
+
+    /** Alias for DOUBLE_ELIMINATION */
+    KNOCKOUT_DOUBLE,
+
+    /** Alias for GROUP_KNOCKOUT */
+    GROUP_PLAYOFF,
+
+    /** Alias for ROUND_ROBIN */
+    LEAGUE,
+
+    /** Custom format — falls back to single-elimination scheduling */
+    CUSTOM
 }

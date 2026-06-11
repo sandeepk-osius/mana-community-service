@@ -1,6 +1,8 @@
 package com.manacommunity.api.model.scheduler;
 
 public enum MatchStatus {
+    DRAFT,        // saved as draft — visible only to the organiser
+    PUBLISHED,    // published — visible to all participants
     SCHEDULED,
     LIVE,
     COMPLETED,

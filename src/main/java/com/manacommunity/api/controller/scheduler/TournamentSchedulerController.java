@@ -31,6 +31,7 @@ public class TournamentSchedulerController {
     private final SportsEventRepository      eventRepo;
     private final LoggedInUserService        loggedInUserService;
     private final com.manacommunity.api.repository.AuctionConfigRepository auctionConfigRepo;
+    private final com.manacommunity.api.service.scheduler.PlayoffScheduleGenerator playoffGenerator;
 
     // ═══════════════════════════════════════════════════════════════
     // CONFIG CRUD — save / update (without schedule generation)
@@ -268,6 +269,68 @@ public class TournamentSchedulerController {
             @RequestBody MatchScheduleRequest req) {
         schedulerService.scheduleManualMatch(configId, req);
         return ResponseEntity.ok("Match scheduled successfully for " + req.stage());
+    }
+
+    /**
+     * GET /api/tournament/{configId}/matches
+     * Returns all saved matches for a config.
+     */
+    @GetMapping("/{configId}/matches")
+    public ResponseEntity<List<MatchResponse>> getMatches(@PathVariable Long configId) {
+        List<MatchResponse> matches = matchRepo.findByConfigId(configId)
+            .stream().map(schedulerService::toMatchResponse).toList();
+        return ResponseEntity.ok(matches);
+    }
+
+    /**
+     * POST /api/tournament/{configId}/matches/bulk
+     * Replaces all existing matches for the config with the supplied list.
+     * Called by the frontend "Save as Draft" and "Save & Publish" buttons.
+     */
+    @PostMapping("/{configId}/matches/bulk")
+    @PreAuthorize("hasAnyRole('ADMIN','SPORTS_ADMIN','SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> saveMatchesBulk(
+            @PathVariable Long configId,
+            @RequestBody BulkMatchSaveRequest request) {
+        int saved = schedulerService.saveMatchesBulk(configId, request.matches());
+        return ResponseEntity.ok(Map.of("saved", saved, "configId", configId));
+    }
+
+    /**
+     * PUT /api/tournament/{configId}/matches/status
+     * Updates the status of all matches for a config.
+     * Called by "Save as Draft" (DRAFT) and "Save & Publish" (PUBLISHED).
+     */
+    @PutMapping("/{configId}/matches/status")
+    @PreAuthorize("hasAnyRole('ADMIN','SPORTS_ADMIN','SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> updateMatchesStatus(
+            @PathVariable Long configId,
+            @RequestBody MatchStatusUpdateRequest request) {
+        int updated = schedulerService.updateMatchesStatus(configId, request.status());
+        return ResponseEntity.ok(Map.of("updated", updated, "configId", configId, "status", request.status()));
+    }
+
+    /**
+     * DELETE /api/tournament/{configId}/matches
+     * Deletes all matches for a config. Called by the "Clear" button.
+     */
+    @DeleteMapping("/{configId}/matches")
+    @PreAuthorize("hasAnyRole('ADMIN','SPORTS_ADMIN','SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> deleteMatches(@PathVariable Long configId) {
+        int deleted = schedulerService.deleteMatchesByConfigId(configId);
+        return ResponseEntity.ok(Map.of("deleted", deleted, "configId", configId));
+    }
+
+    /**
+     * POST /api/tournament/playoff/generate
+     * Stateless: generates the playoff ("rounds to final") bracket from the given
+     * inputs and returns the draft. No DB writes — the UI persists via matches/bulk.
+     */
+    @PostMapping("/playoff/generate")
+    @PreAuthorize("hasAnyRole('ADMIN','SPORTS_ADMIN','SUPER_ADMIN')")
+    public ResponseEntity<List<PlayoffMatchDraftResponse>> generatePlayoff(
+            @RequestBody PlayoffGenerateRequest request) {
+        return ResponseEntity.ok(playoffGenerator.buildPlayoffBracket(request));
     }
 
     record TournamentTypeInfo(
