@@ -24,6 +24,7 @@ public record TournamentConfigResponse(
     LocalDate endDate,
     Integer matchDurationMinutes,
     Integer breakBetweenMatchesMinutes,
+    Long    venueId,
     String  venueName,
     Integer pointsForWin,
     Integer pointsForDraw,

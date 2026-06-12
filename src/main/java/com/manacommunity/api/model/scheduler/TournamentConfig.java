@@ -1,9 +1,6 @@
 package com.manacommunity.api.model.scheduler;
 
-import com.manacommunity.api.model.AppUser;
-import com.manacommunity.api.model.Community;
-import com.manacommunity.api.model.SportsMeta;
-import com.manacommunity.api.model.SportsEvent;
+import com.manacommunity.api.model.*;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDate;
@@ -60,7 +57,9 @@ public class TournamentConfig {
 
     private Integer matchDurationMinutes;
     private Integer breakBetweenMatchesMinutes;
-    private String  venueName;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "venue_id")
+    private Venue venue;
 
     // ── Points system (for round robin / group stage) ─────────────
     private Integer pointsForWin;          // default 2

@@ -5,10 +5,13 @@ import com.manacommunity.api.model.scheduler.*;
 import com.manacommunity.api.repository.AuctionTeamRepository;
 import com.manacommunity.api.repository.AppUserRepository;
 import com.manacommunity.api.repository.CommunityRepository;
+import com.manacommunity.api.repository.CourtRepository;
 import com.manacommunity.api.repository.SportMetaRepository;
 import com.manacommunity.api.repository.SportsEventRepository;
+import com.manacommunity.api.repository.VenueRepository;
 import com.manacommunity.api.repository.scheduler.*;
-import com.manacommunity.api.service.scheduler.TournamentSchedulerService;
+import com.manacommunity.api.service.scheduler.MatchPersistenceService;
+import com.manacommunity.api.service.scheduler.TimeSlotAllocator;
 import com.manacommunity.api.support.TestDataBuilder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -20,7 +23,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,8 +31,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("TournamentSchedulerService - saveMatchesBulk")
-class TournamentSchedulerServiceTest {
+@DisplayName("MatchPersistenceService - saveMatchesBulk")
+class MatchPersistenceServiceTest {
 
     @Mock TournamentConfigRepository  configRepo;
     @Mock TournamentGroupRepository   groupRepo;
@@ -41,8 +43,11 @@ class TournamentSchedulerServiceTest {
     @Mock SportMetaRepository         sportMetaRepo;
     @Mock CommunityRepository         communityRepo;
     @Mock SportsEventRepository       eventRepo;
+    @Mock VenueRepository             venueRepo;
+    @Mock CourtRepository             courtRepo;
+    @Mock TimeSlotAllocator           timeSlots;
 
-    @InjectMocks TournamentSchedulerService service;
+    @InjectMocks MatchPersistenceService service;
 
     private TournamentConfig config() {
         return TestDataBuilder.tournamentConfig(84L);
@@ -54,7 +59,7 @@ class TournamentSchedulerServiceTest {
                 1, homeName, "1",
                 awayName, "2",
                 LocalDate.now().plusDays(7).toString(), "10:00",
-                90, "Main Ground", "Court 1", "SCHEDULED"
+                90, null, null, "SCHEDULED"
         );
     }
 
@@ -135,7 +140,7 @@ class TournamentSchedulerServiceTest {
             BulkMatchSaveRequest.MatchData m = new BulkMatchSaveRequest.MatchData(
                     10L, 84L, "Playoffs", "KNOCKOUT", 1,
                     "Winner A", "TBD", "Winner B", "TBD",
-                    LocalDate.now().toString(), "12:00", 60, "Arena", "1", "SCHEDULED");
+                    LocalDate.now().toString(), "12:00", 60, null, null, "SCHEDULED");
 
             service.saveMatchesBulk(84L, List.of(m));
 

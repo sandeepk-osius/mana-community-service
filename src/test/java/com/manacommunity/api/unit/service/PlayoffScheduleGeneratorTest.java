@@ -20,7 +20,7 @@ class PlayoffScheduleGeneratorTest {
                                            boolean thirdPlace) {
         return new PlayoffGenerateRequest(
                 numGroups, proceeders, seeding, thirdPlace,
-                "2026-06-20", "08:00 AM", 30, 10, "LE", "Court 1");
+                "2026-06-20", "08:00 AM", 30, 10, 1L, 1L);
     }
 
     @Nested
@@ -85,8 +85,8 @@ class PlayoffScheduleGeneratorTest {
             assertThat(matches.get(2).time()).isEqualTo("09:20 AM");
             assertThat(matches).allSatisfy(m -> {
                 assertThat(m.date()).isEqualTo("2026-06-20");
-                assertThat(m.venue()).isEqualTo("LE");
-                assertThat(m.court()).isEqualTo("Court 1");
+                assertThat(m.venueId()).isEqualTo(1L);
+                assertThat(m.courtId()).isEqualTo(1L);
                 assertThat(m.duration()).isEqualTo(30);
             });
         }
@@ -119,6 +119,19 @@ class PlayoffScheduleGeneratorTest {
             assertThat(matches).anySatisfy(m -> assertThat(m.name()).contains("(BYE)"));
             // A bracket of 3 collapses to a final, so a FINAL must exist
             assertThat(matches).anySatisfy(m -> assertThat(m.round()).isEqualTo("FINAL"));
+
+            // A bye isn't played: it carries no scheduled time (only a day for display).
+            PlayoffMatchDraftResponse bye = matches.stream()
+                    .filter(m -> m.name().contains("(BYE)")).findFirst().orElseThrow();
+            assertThat(bye.time()).isEmpty();
+
+            // The bye does not consume a slot, so real matches keep distinct, advancing times.
+            long distinctRealTimes = matches.stream()
+                    .filter(m -> !m.name().contains("(BYE)"))
+                    .map(PlayoffMatchDraftResponse::time)
+                    .distinct().count();
+            long realMatches = matches.stream().filter(m -> !m.name().contains("(BYE)")).count();
+            assertThat(distinctRealTimes).isEqualTo(realMatches);
         }
     }
 

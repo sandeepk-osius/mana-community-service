@@ -14,8 +14,8 @@ public record PlayoffMatchDraftResponse(
     String        date,           // "yyyy-MM-dd"
     String        time,           // 12-hour "hh:mm AM/PM"
     int           duration,
-    String        venue,
-    String        court,
+    Long          venueId,
+    Long          courtId,
     boolean       moveSubsMatches
 ) {
     public record ParticipantRef(String id, String name, String flatNumber) {

@@ -132,6 +132,7 @@ public class TournamentSchedulerController {
                 Map.entry("eventDateEnd", e.getEventDateEnd() != null ? e.getEventDateEnd().toString() : ""),
                 Map.entry("status", e.getTournament() != null && e.getTournament().getRegistrationStatus() != null ? e.getTournament().getRegistrationStatus().name() : ""),
                 Map.entry("totalTeams", totalTeams),
+                Map.entry("venueId", e.getVenue() != null ? e.getVenue().getId() : 0),
                 Map.entry("venueName", venueStr)
             );
         }).toList();
@@ -319,6 +320,20 @@ public class TournamentSchedulerController {
     public ResponseEntity<Map<String, Object>> deleteMatches(@PathVariable Long configId) {
         int deleted = schedulerService.deleteMatchesByConfigId(configId);
         return ResponseEntity.ok(Map.of("deleted", deleted, "configId", configId));
+    }
+
+    /**
+     * POST /api/tournament/schedule/save
+     * Unified, deferred save: persists the tournament config and all customized
+     * matches together in a single transaction. Replaces the separate
+     * createConfig + saveMatchesBulk calls for the scheduler save flow.
+     */
+    @PostMapping("/schedule/save")
+    @PreAuthorize("hasAnyRole('ADMIN','SPORTS_ADMIN','SUPER_ADMIN')")
+    public ResponseEntity<ScheduleSaveResponse> saveSchedule(
+            @Valid @RequestBody ScheduleSaveRequest req,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(schedulerService.saveSchedule(req, principal.getId()));
     }
 
     /**

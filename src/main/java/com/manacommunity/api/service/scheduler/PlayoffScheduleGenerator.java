@@ -133,7 +133,7 @@ public class PlayoffScheduleGenerator {
 
     // ── Round naming ──────────────────────────────────────────────────
 
-    static String getRoundName(int roundIndex, int totalRounds) {
+    public static String getRoundName(int roundIndex, int totalRounds) {
         if (roundIndex == totalRounds - 1) return "FINAL";
         if (roundIndex == totalRounds - 2) return "SEMI_FINAL";
         if (roundIndex == totalRounds - 3) return "QUARTER_FINAL";
@@ -175,7 +175,7 @@ public class PlayoffScheduleGenerator {
         return pad2(h) + ":" + pad2(minutes) + " " + meridiem;
     }
 
-    static String addMinutesToTime(String time, int minutesToAdd) {
+    public static String addMinutesToTime(String time, int minutesToAdd) {
         int[] hm = parseTime12h(time);
         int total = hm[0] * 60 + hm[1] + minutesToAdd;
         int newHours = (total / 60) % 24;
@@ -218,6 +218,11 @@ public class PlayoffScheduleGenerator {
             }
             return current;
         }
+
+        /** The day the next slot falls on, without consuming/advancing the cursor. */
+        String currentDate() {
+            return slotDate;
+        }
     }
 
     // ── Bracket builders ──────────────────────────────────────────────
@@ -247,19 +252,19 @@ public class PlayoffScheduleGenerator {
         List<PlayoffMatchDraftResponse> matches = new ArrayList<>();
         matches.add(new PlayoffMatchDraftResponse(sf1Id, "Semi-Final 1", "SEMI_FINAL", 0,
                 toSlotParticipant(sf1Pair[0]), toSlotParticipant(sf1Pair[1]),
-                s1[0], s1[1], in.matchDurationMinutes(), in.venue(), in.court(), false));
+                s1[0], s1[1], in.matchDurationMinutes(), in.venueId(), in.courtId(), false));
         matches.add(new PlayoffMatchDraftResponse(sf2Id, "Semi-Final 2", "SEMI_FINAL", 0,
                 toSlotParticipant(sf2Pair[0]), toSlotParticipant(sf2Pair[1]),
-                s2[0], s2[1], in.matchDurationMinutes(), in.venue(), in.court(), false));
+                s2[0], s2[1], in.matchDurationMinutes(), in.venueId(), in.courtId(), false));
         matches.add(new PlayoffMatchDraftResponse(finalId, "Final", "FINAL", 1,
                 winnerRef(sf1Id, "Semi-Final 1"), winnerRef(sf2Id, "Semi-Final 2"),
-                sFinal[0], sFinal[1], in.matchDurationMinutes(), in.venue(), in.court(), false));
+                sFinal[0], sFinal[1], in.matchDurationMinutes(), in.venueId(), in.courtId(), false));
 
         if (in.thirdPlaceMatch()) {
             String[] s3 = cursor.next();
             matches.add(new PlayoffMatchDraftResponse("playoff-third-place", "Third Place", "THIRD_PLACE", 2,
                     loserRef(sf1Id, "Semi-Final 1"), loserRef(sf2Id, "Semi-Final 2"),
-                    s3[0], s3[1], in.matchDurationMinutes(), in.venue(), in.court(), false));
+                    s3[0], s3[1], in.matchDurationMinutes(), in.venueId(), in.courtId(), false));
         }
         return matches;
     }
@@ -333,18 +338,19 @@ public class PlayoffScheduleGenerator {
                     String[] slot = cursor.next();
                     matches.add(new PlayoffMatchDraftResponse(id, name, roundType, roundIndex,
                             home, away, slot[0], slot[1],
-                            in.matchDurationMinutes(), in.venue(), in.court(), false));
+                            in.matchDurationMinutes(), in.venueId(), in.courtId(), false));
                     nextParticipants.add(winnerRef(id, name));
                 }
 
-                // Generate the BYE match at the end of the round
+                // Generate the BYE match at the end of the round.
+                // A bye isn't played, so it does NOT consume a time slot (the cursor is
+                // not advanced) and carries no scheduled time — only the day, for display.
                 int byeMatchIdx = numMatches;
                 String byeMatchId = "playoff-r" + roundIndex + "-m" + byeMatchIdx;
                 String byeMatchName = byeParticipant.name() + " (BYE)";
-                String[] slot = cursor.next();
                 matches.add(new PlayoffMatchDraftResponse(byeMatchId, byeMatchName, roundType, roundIndex,
-                        byeParticipant, new ParticipantRef("bye", "BYE"), slot[0], slot[1],
-                        in.matchDurationMinutes(), in.venue(), in.court(), false));
+                        byeParticipant, new ParticipantRef("bye", "BYE"), cursor.currentDate(), "",
+                        in.matchDurationMinutes(), in.venueId(), in.courtId(), false));
 
                 // Advance the BYE player directly (preserving clean name)
                 nextParticipants.add(byeParticipant);
@@ -358,7 +364,7 @@ public class PlayoffScheduleGenerator {
                     String[] slot = cursor.next();
                     matches.add(new PlayoffMatchDraftResponse(id, name, roundType, roundIndex,
                             home, away, slot[0], slot[1],
-                            in.matchDurationMinutes(), in.venue(), in.court(), false));
+                            in.matchDurationMinutes(), in.venueId(), in.courtId(), false));
                     nextParticipants.add(winnerRef(id, name));
                 }
             }
@@ -376,7 +382,7 @@ public class PlayoffScheduleGenerator {
                         "THIRD_PLACE", roundIndex,
                         loserRef(semiMatches.get(0).id(), semiMatches.get(0).name()),
                         loserRef(semiMatches.get(1).id(), semiMatches.get(1).name()),
-                        slot[0], slot[1], in.matchDurationMinutes(), in.venue(), in.court(), false));
+                        slot[0], slot[1], in.matchDurationMinutes(), in.venueId(), in.courtId(), false));
             }
         }
 

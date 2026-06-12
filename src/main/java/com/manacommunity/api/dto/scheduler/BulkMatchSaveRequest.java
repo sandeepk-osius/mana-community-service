@@ -17,8 +17,8 @@ public record BulkMatchSaveRequest(List<MatchData> matches) {
         String  matchDate,   // "yyyy-MM-dd"
         String  matchTime,   // "HH:mm"
         Integer duration,    // minutes
-        String  venue,
-        String  court,
+        Long    venueId,
+        Long    courtId,
         String  status       // "SCHEDULED"
     ) {}
 }

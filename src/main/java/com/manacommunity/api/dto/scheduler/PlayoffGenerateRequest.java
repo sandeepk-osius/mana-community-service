@@ -14,6 +14,6 @@ public record PlayoffGenerateRequest(
     String  startTime,              // 12-hour "hh:mm AM/PM"
     int     matchDurationMinutes,
     int     breakMinutes,
-    String  venue,
-    String  court
+    Long    venueId,
+    Long    courtId
 ) {}

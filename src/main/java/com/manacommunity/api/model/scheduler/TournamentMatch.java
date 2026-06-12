@@ -1,8 +1,12 @@
 package com.manacommunity.api.model.scheduler;
 
 import com.manacommunity.api.model.AuctionTeam;
+import com.manacommunity.api.model.Court;
+import com.manacommunity.api.model.Venue;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 import java.time.LocalDateTime;
 
 @Entity @Table(name = "tournament_match")
@@ -13,7 +17,9 @@ public class TournamentMatch {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "config_id", nullable = false)
+    @JoinColumn(name = "config_id", nullable = false,
+                foreignKey = @ForeignKey(name = "fk_tournament_match_config"))
+    @OnDelete(action = OnDeleteAction.CASCADE)   // delete matches when their config is deleted
     private TournamentConfig config;
 
     // ── Bracket / group context ───────────────────────────────────
@@ -50,8 +56,13 @@ public class TournamentMatch {
     private LocalDateTime scheduledAt;
 
     private Integer durationMinutes;
-    private String  venueName;
-    private String  courtNumber;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "venue_id")
+    private Venue venue;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "court_id")
+    private Court court;
 
     // ── Result ────────────────────────────────────────────────────
     @Enumerated(EnumType.STRING)

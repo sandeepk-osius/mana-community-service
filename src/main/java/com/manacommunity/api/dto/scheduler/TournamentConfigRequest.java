@@ -30,7 +30,7 @@ public record TournamentConfigRequest(
     LocalDate          endDate,
     Integer  matchDurationMinutes,
     Integer  breakBetweenMatchesMinutes,
-    String   venueName,
+    Long     venueId,
 
     // Points
     Integer  pointsForWin,
